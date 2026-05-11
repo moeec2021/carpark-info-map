@@ -3,89 +3,193 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ title }}</title>
+    <title>{{ app_title }}</title>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 
     <!-- DataTables (CDN) -->
-    <link
-      rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
-    />
-  </head>
-  <body>
-    <header class="container">
-      <h1>{{ title }}</h1>
-
-      <div class="meta">
-        <div>Resource ID: <code>{{ resource_id }}</code></div>
-        <div>
-          {% if fetched_at %}
-            Last fetched: <span>{{ fetched_at | int }}</span> (unix)
-          {% endif %}
-          {% if total %} | Total (reported): {{ total }}{% endif %}
-        </div>
-      </div>
-
-      {% if error %}
-        <div class="alert">
-          Failed to load data: <strong>{{ error }}</strong>
-        </div>
-      {% endif %}
-
-      <form method="get" class="controls">
-        <label>
-          Filter (contains search across all fields):
-          <input name="q" value="{{ q }}" placeholder="e.g. ANG MO KIO, BLK, CP3" />
-        </label>
-        <button type="submit">Apply</button>
-        <a class="button" href="/?refresh=1{% if q %}&q={{ q | urlencode }}{% endif %}">
-          Refresh cache
-        </a>
-        <a class="button" href="/download.csv{% if q %}?q={{ q | urlencode }}{% endif %}">
-          Download CSV
-        </a>
-      </form>
-
-      <p class="hint">
-        Showing {{ shown }} row(s){% if filtered != shown %} (filtered from {{ filtered }}){% endif %}.
-        Display is capped at {{ display_max }} rows for browser performance.
-      </p>
-    </header>
-
-    <main class="container">
-      <table id="carparks" class="display" style="width: 100%">
-        <thead>
-          <tr>
-            {% for c in cols %}
-              <th>{{ c }}</th>
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in rows %}
-            <tr>
-              {% for c in cols %}
-                <td>{{ r.get(c, "") }}</td>
-              {% endfor %}
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </main>
-
-    <footer class="container footer">
-      <span>Render.com • Flask + data.gov.sg datastore_search</span>
-    </footer>
-
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  </head>
+
+  <body>
+    <div class="container">
+      <header class="header">
+        <h1 class="title">{{ app_title }}</h1>
+        <p class="subtitle">Singapore carpark information from data.gov.sg (CKAN datastore_search)</p>
+      </header>
+
+      <section class="card">
+        <div class="grid">
+          <div>
+            <div class="label">RESOURCE_ID</div>
+            <div class="value mono">{{ resource_id }}</div>
+          </div>
+
+          <div>
+            <div class="label">Last fetched</div>
+            <div class="value mono">
+              {% if fetched_at_iso %}
+                {{ fetched_at_iso }}
+              {% else %}
+                (not fetched yet)
+              {% endif %}
+            </div>
+          </div>
+
+          <div>
+            <div class="label">CKAN total records</div>
+            <div class="value mono">{{ total_ckan }}</div>
+          </div>
+
+          <div>
+            <div class="label">Fetched / cached records</div>
+            <div class="value mono">
+              {{ fetched_count }}
+              {% if capped %}
+                <span class="pill warn">capped</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if capped %}
+          <div class="note">
+            Safety cap reached (MAX_RECORDS). Increase MAX_RECORDS if you intentionally want more cached records.
+          </div>
+        {% endif %}
+
+        {% if error %}
+          <div class="error">
+            <div class="error-title">Fetch error</div>
+            <div class="mono">{{ error }}</div>
+          </div>
+        {% endif %}
+
+        <div class="toolbar">
+          <form method="get" action="{{ url_for('index') }}" class="filter">
+            <label for="q" class="label-inline">Contains filter (server-side):</label>
+            <input id="q" name="q" type="text" value="{{ q }}" placeholder="Search across all fields..." />
+            <button type="submit">Apply</button>
+          </form>
+
+          <div class="links">
+            <a class="link" href="{{ refresh_url }}">Refresh cache</a>
+            <a class="link" href="{{ download_url }}">Download CSV</a>
+            <a class="link" href="{{ clear_url }}">Clear filter</a>
+          </div>
+        </div>
+
+        <div class="meta">
+          <span>Filtered records: <span class="mono">{{ filtered_count }}</span></span>
+          <span>Displayed rows: <span class="mono">{{ displayed_count }}</span> / <span class="mono">{{ display_max_rows }}</span></span>
+          <span>Map locations prepared: <span class="mono">{{ map_locations|length }}</span></span>
+        </div>
+
+        <div class="map-toolbar">
+          <button id="toggleMapBtn" type="button">Show Map</button>
+          <span class="muted">Embedded Google Map defaults to Singapore main island; pick a displayed carpark to jump to its lat/lon.</span>
+        </div>
+
+        <div id="mapSection" class="map-section" style="display: none;">
+          <div class="map-controls">
+            <label class="label-inline" for="mapSelect">Displayed carpark locations:</label>
+            <select id="mapSelect">
+              <option value="">Singapore (main island)</option>
+              {% for loc in map_locations %}
+                <option value="{{ loc.query }}">{{ loc.label }}</option>
+              {% endfor %}
+            </select>
+
+            <a class="link" id="openMapsLink" href="https://www.google.com/maps?q=Singapore" target="_blank" rel="noopener">
+              Open in Google Maps
+            </a>
+          </div>
+
+          <div class="map-frame-wrap">
+            <iframe
+              id="mapFrame"
+              class="map-frame"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+              src="https://www.google.com/maps?q=Singapore&z=12&output=embed">
+            </iframe>
+          </div>
+
+          <div class="note">
+            Tip: Using precise coordinates (lat/lon) avoids address ambiguity. The embed iframe shows one selected location at a time without requiring an API key.
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="table-wrap">
+          <table id="carparkTable" class="display compact" style="width: 100%;">
+            <thead>
+              <tr>
+                {% for col in columns %}
+                  <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in rows %}
+                <tr>
+                  {% for col in columns %}
+                    <td>{{ r.get(col, "") }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span class="mono">/healthz</span> available for uptime checks.
+      </footer>
+    </div>
+
     <script>
-      $(function () {
-        $("#carparks").DataTable({
+      $(document).ready(function () {
+        $('#carparkTable').DataTable({
           pageLength: 25,
           lengthMenu: [10, 25, 50, 100],
-          scrollX: true
+          scrollX: true,
+          order: [],
+          deferRender: true
+        });
+
+        const mapSection = document.getElementById('mapSection');
+        const toggleMapBtn = document.getElementById('toggleMapBtn');
+        const mapSelect = document.getElementById('mapSelect');
+        const mapFrame = document.getElementById('mapFrame');
+        const openMapsLink = document.getElementById('openMapsLink');
+
+        function setMapQuery(q) {
+          const query = (q && q.trim()) ? q.trim() : "Singapore";
+          const encoded = encodeURIComponent(query);
+
+          // Zoom in when coordinates are selected; otherwise default Singapore overview.
+          const isCoord = query.includes(",") && /-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?/.test(query);
+          const zoom = isCoord ? 16 : 12;
+
+          mapFrame.src = "https://www.google.com/maps?q=" + encoded + "&z=" + zoom + "&output=embed";
+          openMapsLink.href = "https://www.google.com/maps?q=" + encoded;
+        }
+
+        toggleMapBtn.addEventListener('click', function () {
+          const isHidden = mapSection.style.display === 'none';
+          mapSection.style.display = isHidden ? 'block' : 'none';
+          toggleMapBtn.textContent = isHidden ? 'Hide Map' : 'Show Map';
+          if (isHidden) {
+            setMapQuery(mapSelect.value);
+          }
+        });
+
+        mapSelect.addEventListener('change', function () {
+          setMapQuery(mapSelect.value);
         });
       });
     </script>
