@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: carpark-table-app
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    autoDeploy: true
+    envVars:
+      - key: APP_TITLE
+        value: Singapore Carpark Locations
+      - key: CKAN_ACTION_BASE
+        value: https://data.gov.sg/api/action
+      - key: DATASET_ID
+        value: d_23f946fa557947f93a8043bbef41dd09
+      - key: CACHE_TTL_SECONDS
+        value: '21600'
