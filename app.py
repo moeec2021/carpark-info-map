@@ -1,382 +1,299 @@
-import os
-import time
-import threading
-import csv
-import io
-from datetime import datetime, timezone
-from urllib.parse import quote_plus
-
-import requests
-from flask import Flask, Response, jsonify, render_template, request, url_for
-
-
-def _get_env_str(name: str, default: str) -> str:
-    v = os.getenv(name)
-    return default if v is None or v == "" else v
-
-
-def _get_env_int(name: str, default: int) -> int:
-    v = os.getenv(name)
-    if v is None or v == "":
-        return default
-    try:
-        return int(v)
-    except ValueError:
-        return default
-
-
-APP_TITLE = _get_env_str("APP_TITLE", "Singapore Carpark Info (Table View)")
-RESOURCE_ID = _get_env_str("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09")
-CKAN_ACTION_BASE = _get_env_str("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
-FETCH_LIMIT = _get_env_int("FETCH_LIMIT", 5000)
-MAX_RECORDS = _get_env_int("MAX_RECORDS", 20000)
-CACHE_TTL_SECONDS = _get_env_int("CACHE_TTL_SECONDS", 21600)
-DISPLAY_MAX_ROWS = _get_env_int("DISPLAY_MAX_ROWS", 2000)
-HTTP_TIMEOUT_SECONDS = _get_env_int("HTTP_TIMEOUT_SECONDS", 20)
-
-INTERNAL_KEYS_EXACT = {"_id", "_full_text"}
-
-# Heuristics to identify common fields for user-friendly labels.
-ADDRESS_FIELD_CANDIDATES = [
-    "address",
-    "carpark_address",
-    "car_park_address",
-    "location",
-    "street_name",
-    "street",
-    "road_name",
-    "building",
-    "name",
-]
-ID_FIELD_CANDIDATES = [
-    "car_park_no",
-    "carpark_no",
-    "carpark_number",
-    "carparkid",
-    "carpark_id",
-    "id",
-    "code",
-]
-LAT_FIELD_CANDIDATES = ["latitude", "lat"]
-LON_FIELD_CANDIDATES = ["longitude", "lon", "lng"]
-
-app = Flask(__name__)
-
-_cache_lock = threading.Lock()
-_cache = {
-    "resource_id": None,
-    "expires_at": 0.0,
-    "fetched_at_iso": None,
-    "total_ckan": 0,
-    "fetched_count": 0,
-    "capped": False,
-    "fields": [],
-    "records": [],
-    "columns": [],
+:root {
+  --bg: #0b0f14;
+  --panel: #101826;
+  --panel-2: #0f172a;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #223046;
+  --accent: #60a5fa;
+  --warn: #f59e0b;
+  --error: #ef4444;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
+* { box-sizing: border-box; }
 
-def _now_iso_local() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+body {
+  margin: 0;
+  background: radial-gradient(1200px 800px at 10% 10%, #0f1a2b 0%, var(--bg) 60%);
+  color: var(--text);
+  font-family: var(--sans);
+}
 
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 16px 28px;
+}
 
-def _datastore_search_url() -> str:
-    base = CKAN_ACTION_BASE.rstrip("/")
-    # PRIMARY REQUIREMENT: ONLY CKAN datastore_search endpoint (no package_show)
-    return f"{base}/datastore_search"
+.header { margin: 10px 0 16px; }
 
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
 
-def _derive_columns(fields, first_record):
-    cols = []
-    if fields:
-        for f in fields:
-            fid = f.get("id")
-            if not fid:
-                continue
-            if fid in INTERNAL_KEYS_EXACT:
-                continue
-            if fid.startswith("_"):
-                continue
-            cols.append(fid)
-    elif first_record:
-        for k in first_record.keys():
-            if k in INTERNAL_KEYS_EXACT:
-                continue
-            if k.startswith("_"):
-                continue
-            cols.append(k)
-    return cols
+.subtitle { margin: 6px 0 0; color: var(--muted); }
 
+.card {
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 14px 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+}
 
-def _fetch_all_from_ckan():
-    url = _datastore_search_url()
-    offset = 0
-    limit = max(1, FETCH_LIMIT)
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
 
-    all_records = []
-    fields = []
-    total_ckan = 0
-    capped = False
+@media (min-width: 860px) {
+  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 
-    while True:
-        params = {
-            "resource_id": RESOURCE_ID,
-            "limit": limit,
-            "offset": offset,
-        }
-        resp = requests.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        payload = resp.json()
+.label {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
-        if not payload.get("success"):
-            raise RuntimeError(f"CKAN response not successful: {payload}")
+.value { font-size: 14px; line-height: 1.35; }
 
-        result = payload.get("result") or {}
-        if offset == 0:
-            total_ckan = int(result.get("total") or 0)
-            fields = result.get("fields") or []
+.mono { font-family: var(--mono); }
 
-        batch = result.get("records") or []
-        if not batch:
-            break
+.muted { color: var(--muted); font-size: 13px; }
 
-        all_records.extend(batch)
-        offset += len(batch)
+.pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
 
-        if len(all_records) >= MAX_RECORDS:
-            all_records = all_records[:MAX_RECORDS]
-            capped = True
-            break
+.pill.warn {
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #ffd48a;
+  background: rgba(245, 158, 11, 0.12);
+}
 
-        if offset >= total_ckan:
-            break
+.note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  color: #cfe6ff;
+}
 
-    columns = _derive_columns(fields, all_records[0] if all_records else None)
+.error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.10);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
 
-    return {
-        "resource_id": RESOURCE_ID,
-        "fetched_at_iso": _now_iso_local(),
-        "total_ckan": total_ckan,
-        "fetched_count": len(all_records),
-        "capped": capped or (len(all_records) < total_ckan and len(all_records) == MAX_RECORDS),
-        "fields": fields,
-        "records": all_records,
-        "columns": columns,
-    }
+.error-title {
+  font-weight: 700;
+  color: #ffb4b4;
+  margin-bottom: 6px;
+}
 
+.toolbar {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-def _get_cached_data(force_refresh: bool):
-    now = time.time()
+@media (min-width: 860px) {
+  .toolbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
 
-    with _cache_lock:
-        cache_valid = (
-            _cache["resource_id"] == RESOURCE_ID
-            and _cache["records"]
-            and now < float(_cache["expires_at"])
-        )
-        if cache_valid and not force_refresh:
-            return dict(_cache)
+.filter {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 
-    fetched = _fetch_all_from_ckan()
-    expires_at = now + float(CACHE_TTL_SECONDS)
+.label-inline { color: var(--muted); font-size: 13px; }
 
-    with _cache_lock:
-        _cache.update(fetched)
-        _cache["expires_at"] = expires_at
+input[type="text"] {
+  min-width: 280px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  outline: none;
+}
 
-    return dict(_cache)
+input[type="text"]:focus {
+  border-color: rgba(96, 165, 250, 0.6);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+}
 
+button {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--text);
+  cursor: pointer;
+}
 
-def _contains_filter(records, columns, q: str):
-    if not q:
-        return records
-    ql = q.lower()
-    out = []
-    for rec in records:
-        for col in columns:
-            val = rec.get(col, "")
-            if val is None:
-                continue
-            if ql in str(val).lower():
-                out.append(rec)
-                break
-    return out
+button:hover { background: rgba(96, 165, 250, 0.22); }
 
+.links { display: flex; gap: 12px; flex-wrap: wrap; }
 
-def _find_first_column(columns, candidates):
-    colset = {c.lower(): c for c in columns}
-    for cand in candidates:
-        key = cand.lower()
-        if key in colset:
-            return colset[key]
-    return None
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+}
 
+.link:hover { text-decoration: underline; }
 
-def _safe_float(v):
-    if v is None:
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip()
-    if s == "":
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        return None
+.meta {
+  margin-top: 10px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+}
 
+.table-wrap { width: 100%; overflow: auto; }
 
-def _build_map_locations(rows, columns):
-    """
-    Builds a list of map locations from displayed rows.
-    Prefers precise lat/lon when available:
-      query = "lat,lon"
-    Returns list[{label, lat, lon, query}]
-    """
-    id_col = _find_first_column(columns, ID_FIELD_CANDIDATES)
-    addr_col = _find_first_column(columns, ADDRESS_FIELD_CANDIDATES)
-    lat_col = _find_first_column(columns, LAT_FIELD_CANDIDATES)
-    lon_col = _find_first_column(columns, LON_FIELD_CANDIDATES)
+/* Map UI */
+.map-toolbar {
+  margin-top: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 
-    seen = set()
-    locs = []
+.map-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(34, 48, 70, 0.7);
+}
 
-    for r in rows:
-        lat = _safe_float(r.get(lat_col)) if lat_col else None
-        lon = _safe_float(r.get(lon_col)) if lon_col else None
-        if lat is None or lon is None:
-            # Dataset says it has lat/lon, but be defensive anyway.
-            continue
+.map-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
 
-        # Dedupe by rounded coordinates (avoid near-duplicates)
-        key = (round(lat, 6), round(lon, 6))
-        if key in seen:
-            continue
-        seen.add(key)
+select {
+  min-width: 340px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  outline: none;
+}
 
-        label_parts = []
-        if id_col:
-            vid = r.get(id_col)
-            if vid not in (None, ""):
-                label_parts.append(str(vid))
+select:focus {
+  border-color: rgba(96, 165, 250, 0.6);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+}
 
-        if addr_col:
-            va = r.get(addr_col)
-            if va not in (None, ""):
-                label_parts.append(str(va))
+.map-frame-wrap {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.15);
+}
 
-        if not label_parts:
-            label_parts.append(f"{lat:.6f},{lon:.6f}")
+.map-frame {
+  width: 100%;
+  height: 460px;
+  border: 0;
+}
 
-        label = " — ".join(label_parts[:2])  # keep labels compact
-        query = f"{lat},{lon}"
+/* DataTables dark theme overrides */
+.dataTables_wrapper { color: var(--text) !important; }
 
-        locs.append({"label": label, "lat": lat, "lon": lon, "query": query})
+table.dataTable {
+  border-collapse: collapse !important;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
 
-    return locs
+table.dataTable thead th {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: var(--text) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
 
+table.dataTable tbody td {
+  border-bottom: 1px solid rgba(34, 48, 70, 0.6) !important;
+}
 
-@app.get("/healthz")
-def healthz():
-    return jsonify({"ok": True})
+table.dataTable.stripe tbody tr.odd,
+table.dataTable.display tbody tr.odd {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
 
+table.dataTable.display tbody tr.even {
+  background-color: rgba(0, 0, 0, 0.10) !important;
+}
 
-@app.get("/download.csv")
-def download_csv():
-    q = (request.args.get("q") or "").strip()
-    refresh = (request.args.get("refresh") or "").strip() == "1"
+.dataTables_filter label,
+.dataTables_length label { color: var(--muted) !important; }
 
-    data = _get_cached_data(force_refresh=refresh)
-    columns = data.get("columns") or []
-    records = data.get("records") or []
+.dataTables_filter input,
+.dataTables_length select {
+  background: rgba(0, 0, 0, 0.22) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 10px !important;
+  padding: 6px 8px !important;
+}
 
-    filtered = _contains_filter(records, columns, q)
+.dataTables_info,
+.dataTables_paginate { color: var(--muted) !important; }
 
-    def generate():
-        output = io.StringIO()
-        writer = csv.writer(output)
+.dataTables_paginate .paginate_button {
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  background: rgba(0, 0, 0, 0.15) !important;
+  border-radius: 10px !important;
+  margin: 0 2px !important;
+}
 
-        writer.writerow(columns)
-        yield output.getvalue()
-        output.seek(0)
-        output.truncate(0)
+.dataTables_paginate .paginate_button.current,
+.dataTables_paginate .paginate_button:hover {
+  background: rgba(96, 165, 250, 0.18) !important;
+  border-color: rgba(96, 165, 250, 0.45) !important;
+}
 
-        for rec in filtered:
-            writer.writerow([rec.get(c, "") for c in columns])
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
-
-    headers = {
-        "Content-Disposition": 'attachment; filename="carpark.csv"',
-        "Cache-Control": "no-store",
-    }
-    return Response(generate(), mimetype="text/csv; charset=utf-8", headers=headers)
-
-
-@app.get("/")
-def index():
-    q = (request.args.get("q") or "").strip()
-    refresh = (request.args.get("refresh") or "").strip() == "1"
-
-    error = None
-    data = None
-    try:
-        data = _get_cached_data(force_refresh=refresh)
-    except Exception as e:
-        error = str(e)
-
-    if data is None:
-        data = {
-            "resource_id": RESOURCE_ID,
-            "fetched_at_iso": None,
-            "total_ckan": 0,
-            "fetched_count": 0,
-            "capped": False,
-            "records": [],
-            "columns": [],
-        }
-
-    columns = data.get("columns") or []
-    records = data.get("records") or []
-    filtered = _contains_filter(records, columns, q)
-
-    display_rows = filtered[: max(0, DISPLAY_MAX_ROWS)]
-    displayed_count = len(display_rows)
-
-    refresh_url = url_for("index") + "?refresh=1"
-    if q:
-        refresh_url += "&q=" + quote_plus(q)
-
-    download_url = url_for("download_csv")
-    if q:
-        download_url += "?q=" + quote_plus(q)
-
-    clear_url = url_for("index")
-
-    map_locations = _build_map_locations(display_rows, columns)
-
-    return render_template(
-        "index.html",
-        app_title=APP_TITLE,
-        resource_id=data.get("resource_id", RESOURCE_ID),
-        fetched_at_iso=data.get("fetched_at_iso"),
-        total_ckan=data.get("total_ckan", 0),
-        fetched_count=data.get("fetched_count", 0),
-        capped=bool(data.get("capped", False)),
-        q=q,
-        filtered_count=len(filtered),
-        displayed_count=displayed_count,
-        display_max_rows=DISPLAY_MAX_ROWS,
-        columns=columns,
-        rows=display_rows,
-        refresh_url=refresh_url,
-        download_url=download_url,
-        clear_url=clear_url,
-        error=error,
-        map_locations=map_locations,
-    )
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
+.footer {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
