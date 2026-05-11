@@ -14,3 +14,6 @@ A simple Flask app that displays HDB carpark information from data.gov.sg.
 
 3. Run locally
    python app.py
+
+4. Open in browser
+   Open http://localhost:5000 in your browser.
