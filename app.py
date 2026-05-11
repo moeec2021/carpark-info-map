@@ -3,20 +3,17 @@ import time
 import threading
 import requests
 from datetime import datetime, timezone
-from flask import Flask, render_template, request, jsonify, url_for
-
+from flask import Flask, render_template, request, jsonify
 
 def env_str(name, default):
     v = os.getenv(name)
     return default if not v else v
-
 
 def env_int(name, default):
     try:
         return int(os.getenv(name, default))
     except ValueError:
         return default
-
 
 APP_TITLE = env_str("APP_TITLE", "Singapore Carpark Info (Table View)")
 RESOURCE_ID = env_str("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09")
@@ -35,10 +32,8 @@ app = Flask(__name__)
 _cache = {}
 _cache_lock = threading.Lock()
 
-
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
 
 def fetch_all_records():
     records = []
@@ -56,12 +51,12 @@ def fetch_all_records():
             timeout=HTTP_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
-        data = resp.json()["result"]
+        result = resp.json()["result"]
 
         if total is None:
-            total = data["total"]
+            total = result["total"]
 
-        batch = data["records"]
+        batch = result["records"]
         records.extend(batch)
         offset += len(batch)
 
@@ -70,9 +65,74 @@ def fetch_all_records():
 
     return records[:MAX_RECORDS], total
 
-
 def get_cached_data(force=False):
     with _cache_lock:
         if not force and _cache.get("expires_at", 0) > time.time():
             return _cache
 
+    records, total = fetch_all_records()
+    columns = [k for k in records[0].keys() if not k.startswith("_")] if records else []
+
+    with _cache_lock:
+        _cache.update(
+            {
+                "records": records,
+                "columns": columns,
+                "total": total,
+                "fetched_at": now_iso(),
+                "expires_at": time.time() + CACHE_TTL_SECONDS,
+            }
+        )
+    return _cache
+
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    return jsonify(ok=True)
+
+@app.route("/", methods=["GET"])
+def index():
+    q = (request.args.get("q") or "").lower()
+    refresh = request.args.get("refresh") == "1"
+
+    data = get_cached_data(force=refresh)
+
+    records = data["records"]
+    if q:
+        records = [
+            r for r in records if any(q in str(v).lower() for v in r.values())
+        ]
+
+    display_rows = records[:DISPLAY_MAX_ROWS]
+
+    # Build first 20 unique lat/lng points for map
+    seen = set()
+    map_points = []
+    for r in display_rows:
+        try:
+            lat = float(r[LAT_COL])
+            lon = float(r[LON_COL])
+            key = (round(lat, 6), round(lon, 6))
+            if key not in seen:
+                seen.add(key)
+                map_points.append(f"{lat},{lon}")
+            if len(map_points) == 20:
+                break
+        except Exception:
+            continue
+
+    map_url = None
+    if len(map_points) >= 2:
+        map_url = "https://www.google.com/maps/dir/" + "/".join(map_points)
+
+    return render_template(
+        "index.html",
+        app_title=APP_TITLE,
+        resource_id=RESOURCE_ID,
+        fetched_at=data["fetched_at"],
+        total_ckan=data["total"],
+        columns=data["columns"],
+        rows=display_rows,
+        map_url=map_url,
+        map_count=len(map_points),
+        q=q,
+    )
