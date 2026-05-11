@@ -126,4 +126,3 @@ def index():
 @app.route("/healthz", methods=["GET"])
 def healthz():
     return jsonify(ok=True)
-``
