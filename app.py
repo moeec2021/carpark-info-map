@@ -5,30 +5,31 @@ from typing import Any, Dict, List, Tuple
 import requests
 from flask import Flask, Response, render_template, request
 
-APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Locations")
+APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Info (Table View)")
 
-# data.gov.sg CKAN action API base
-CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
-DATASET_ID = os.getenv("DATASET_ID", "d_23f946fa557947f93a8043bbef41dd09")
-RESOURCE_ID = os.getenv("RESOURCE_ID", "").strip() or None
+# IMPORTANT:
+# We do NOT call package_show (403 Forbidden on data.gov.sg for some dataset ids).
+# We call datastore_search directly using RESOURCE_ID (which is what your python query does).
+CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action").rstrip("/")
+RESOURCE_ID = os.getenv("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09").strip()
 
 # Fetch controls
-FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))   # per page
-MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))  # safety cap
-CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", str(6 * 60 * 60)))  # default 6 hours
+FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))        # per page
+MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))       # safety cap
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", str(6 * 60 * 60)))  # 6 hours default
 
 # Display controls
 DISPLAY_MAX_ROWS = int(os.getenv("DISPLAY_MAX_ROWS", "2000"))
 
-# Basic HTTP settings
+# HTTP controls
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
-USER_AGENT = os.getenv("USER_AGENT", "carpark-table-app/1.0")
+USER_AGENT = os.getenv("USER_AGENT", "carpark-table-app/1.1")
 
 app = Flask(__name__)
 
 _cache: Dict[str, Any] = {
     "fetched_at": 0.0,
-    "resource_id": None,
+    "resource_id": RESOURCE_ID,
     "records": [],
     "fields": [],
     "error": None,
@@ -37,7 +38,7 @@ _cache: Dict[str, Any] = {
 
 
 def _ckan_get(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    url = f"{CKAN_ACTION_BASE.rstrip('/')}/{action}"
+    url = f"{CKAN_ACTION_BASE}/{action}"
     headers = {"User-Agent": USER_AGENT}
     resp = requests.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS, headers=headers)
     resp.raise_for_status()
@@ -47,38 +48,23 @@ def _ckan_get(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def resolve_resource_id(dataset_id: str) -> str:
-    """
-    Resolve a datastore resource_id from a dataset/package id.
-    Tries package_show and selects the first resource with datastore_active=True
-    (or falls back to the first resource).
-    """
-    pkg = _ckan_get("package_show", {"id": dataset_id}).get("result", {})
-    resources = pkg.get("resources") or []
-    if not resources:
-        raise RuntimeError("No resources found for dataset/package id")
-
-    active = [r for r in resources if r.get("datastore_active")]
-    chosen = (active[0] if active else resources[0])
-    rid = chosen.get("id")
-    if not rid:
-        raise RuntimeError("Resource missing id")
-    return rid
-
-
 def fetch_all_records(resource_id: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]:
-    """Fetch records from datastore_search with pagination."""
+    """Fetch records from datastore_search with pagination via offset/limit."""
     records: List[Dict[str, Any]] = []
     fields: List[Dict[str, Any]] = []
     offset = 0
     total = 0
 
     while True:
+        limit = min(FETCH_LIMIT, MAX_RECORDS - len(records))
+        if limit <= 0:
+            break
+
         page = _ckan_get(
             "datastore_search",
             {
                 "resource_id": resource_id,
-                "limit": min(FETCH_LIMIT, MAX_RECORDS - len(records)),
+                "limit": limit,
                 "offset": offset,
             },
         ).get("result", {})
@@ -97,56 +83,14 @@ def fetch_all_records(resource_id: str) -> Tuple[List[Dict[str, Any]], List[Dict
 
         if len(records) >= MAX_RECORDS:
             break
-        if offset >= total and total > 0:
+        if total > 0 and offset >= total:
             break
 
     return records, fields, total
 
 
-def get_data(force: bool = False) -> Dict[str, Any]:
-    now = time.time()
-
-    if (not force) and _cache["records"] and (now - _cache["fetched_at"] < CACHE_TTL_SECONDS):
-        return _cache
-
-    try:
-        rid = RESOURCE_ID or resolve_resource_id(DATASET_ID)
-        records, fields, total = fetch_all_records(rid)
-
-        # Determine columns (order) - prefer fields from API, else keys from first record.
-        if fields:
-            col_order = [f.get("id") for f in fields if f.get("id")]
-        else:
-            col_order = list(records[0].keys()) if records else []
-
-        # Remove internal keys if present.
-        col_order = [c for c in col_order if c not in ("_id", "_full_text")]
-
-        _cache.update(
-            {
-                "fetched_at": now,
-                "resource_id": rid,
-                "records": records,
-                "fields": col_order,
-                "error": None,
-                "total": total,
-            }
-        )
-    except Exception as e:
-        _cache.update(
-            {
-                "fetched_at": now,
-                "error": str(e),
-                "records": [],
-                "fields": [],
-                "total": 0,
-            }
-        )
-
-    return _cache
-
-
-def filter_records(records: List[Dict[str, Any]], q: str) -> List[Dict[str, Any]]:
+def filter_records_contains(records: List[Dict[str, Any]], q: str) -> List[Dict[str, Any]]:
+    """Simple contains search across all fields (server-side)."""
     if not q:
         return records
     q_lower = q.lower()
@@ -161,6 +105,49 @@ def filter_records(records: List[Dict[str, Any]], q: str) -> List[Dict[str, Any]
     return out
 
 
+def get_data(force: bool = False) -> Dict[str, Any]:
+    now = time.time()
+
+    if (not force) and _cache["records"] and (now - _cache["fetched_at"] < CACHE_TTL_SECONDS):
+        return _cache
+
+    try:
+        records, fields, total = fetch_all_records(RESOURCE_ID)
+
+        # Determine display column order from CKAN fields, fallback to record keys
+        if fields:
+            col_order = [f.get("id") for f in fields if f.get("id")]
+        else:
+            col_order = list(records[0].keys()) if records else []
+
+        # Remove internal keys if present
+        col_order = [c for c in col_order if c not in ("_id", "_full_text")]
+
+        _cache.update(
+            {
+                "fetched_at": now,
+                "resource_id": RESOURCE_ID,
+                "records": records,
+                "fields": col_order,
+                "error": None,
+                "total": total,
+            }
+        )
+    except Exception as e:
+        _cache.update(
+            {
+                "fetched_at": now,
+                "resource_id": RESOURCE_ID,
+                "error": str(e),
+                "records": [],
+                "fields": [],
+                "total": 0,
+            }
+        )
+
+    return _cache
+
+
 @app.get("/")
 def index():
     q = request.args.get("q", "").strip()
@@ -173,14 +160,14 @@ def index():
     cols = data.get("fields", [])
 
     if q and records:
-        records = filter_records(records, q)
+        records = filter_records_contains(records, q)
 
+    # Cap display size for browser performance
     records_to_show = records[:DISPLAY_MAX_ROWS]
 
     return render_template(
         "index.html",
         title=APP_TITLE,
-        dataset_id=DATASET_ID,
         resource_id=data.get("resource_id"),
         fetched_at=data.get("fetched_at"),
         total=data.get("total"),
@@ -206,7 +193,7 @@ def download_csv():
     cols = data.get("fields", [])
 
     if q and records:
-        records = filter_records(records, q)
+        records = filter_records_contains(records, q)
 
     def gen():
         import csv
@@ -228,7 +215,7 @@ def download_csv():
     return Response(
         gen(),
         mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=carpark_locations.csv"},
+        headers={"Content-Disposition": "attachment; filename=carpark_info.csv"},
     )
 
 
