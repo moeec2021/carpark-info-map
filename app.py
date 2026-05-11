@@ -22,6 +22,7 @@ LAT_COL = "latitude"
 LON_COL = "longitude"
 
 app = Flask(__name__)
+
 _cache = {}
 _cache_lock = threading.Lock()
 
@@ -35,7 +36,7 @@ def fetch_all():
 
     while True:
         r = requests.get(
-            f"{CKAN_ACTION_BASE}/datastore_search",
+            CKAN_ACTION_BASE + "/datastore_search",
             params={
                 "resource_id": RESOURCE_ID,
                 "limit": FETCH_LIMIT,
@@ -90,20 +91,23 @@ def index():
 
     rows = rows[:DISPLAY_MAX_ROWS]
 
-    # First 20 map points
+    # Build Google Maps URL using up to first 20 unique locations
     seen = set()
     points = []
+
     for r in rows:
         try:
             lat = float(r[LAT_COL])
             lon = float(r[LON_COL])
             key = (round(lat, 6), round(lon, 6))
+
             if key not in seen:
                 seen.add(key)
-                points.append(f"{lat},{lon}")
+                points.append(str(lat) + "," + str(lon))
+
             if len(points) == 20:
                 break
-        except:
+        except Exception:
             continue
 
     map_url = None
