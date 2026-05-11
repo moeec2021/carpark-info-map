@@ -1,0 +1,22 @@
+body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; background: #0b1020; color: #e6e8ee; }
+.container { max-width: 1200px; margin: 0 auto; padding: 18px; }
+header h1 { margin: 0 0 8px 0; font-size: 28px; }
+.meta { font-size: 13px; opacity: .9; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-top: 14px; }
+.controls label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.controls input { width: 320px; padding: 10px 12px; border-radius: 10px; border: 1px solid #2c3355; background: #111735; color: #e6e8ee; }
+button, .button { padding: 10px 14px; border-radius: 12px; border: 1px solid #2c3355; background: #1a2250; color: #e6e8ee; text-decoration: none; font-size: 14px; cursor: pointer; }
+button:hover, .button:hover { background: #24306b; }
+.alert { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #3b1020; border: 1px solid #70223b; }
+.hint { margin-top: 10px; font-size: 13px; opacity: .85; }
+.footer { opacity: .8; font-size: 12px; padding-bottom: 30px; }
+
+/* DataTables overrides */
+.dataTables_wrapper { background: #0f1633; padding: 14px; border-radius: 16px; border: 1px solid #273055; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select { background: #111735; border: 1px solid #2c3355; color: #e6e8ee; border-radius: 10px; padding: 6px 10px; }
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_paginate { color: #e6e8ee !important; }
+table.dataTable thead th { background: #111735; color: #e6e8ee; }
+table.dataTable tbody tr { background: #0f1633; }
+table.dataTable tbody tr:nth-child(even) { background: #0d1430; }
