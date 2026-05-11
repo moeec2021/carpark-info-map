@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
@@ -15,51 +15,58 @@
 <div class="container">
   <h1>{{ app_title }}</h1>
 
-  <p><b>Resource ID:</b> {{ resource_id }}</p>
-  <p><b>Last fetched:</b> {{ fetched_at }} | <b>Total records:</b> {{ total_ckan }}</p>
+  <p><strong>Resource ID:</strong> {{ resource_id }}</p>
+  <p>
+    <strong>Last fetched:</strong> {{ fetched_at }}
+    |
+    <strong>Total records:</strong> {{ total_ckan }}
+  </p>
 
   <form method="get">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search…">
+    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter">
     <button type="submit">Search</button>
   </form>
 
   {% if map_url %}
-  <h2>First {{ map_count }} Carparks on Map</h2>
-  <iframe
-    src="{{ map_url }}"
-    width="100%"
-    height="450"
-    style="border:0"
-    loading="lazy">
-  </iframe>
+    <h2>First {{ map_count }} carpark locations on Google Map</h2>
+    <iframe
+      src="{{ map_url }}"
+      width="100%"
+      height="450"
+      style="border:0;"
+      loading="lazy">
+    </iframe>
   {% endif %}
 
   <h2>Carpark Data</h2>
-  <table id="tbl" class="display">
+  <table id="carparkTable" class="display">
     <thead>
       <tr>
-        {% for c in columns %}
-        <th>{{ c }}</th>
+        {% for col in columns %}
+          <th>{{ col }}</th>
         {% endfor %}
       </tr>
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr>
-        {% for c in columns %}
-        <td>{{ r.get(c, '') }}</td>
-        {% endfor %}
-      </tr>
+        <tr>
+          {% for col in columns %}
+            <td>{{ r.get(col, "") }}</td>
+          {% endfor %}
+        </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
 <script>
-$(function () {
-  $('#tbl').DataTable({ pageLength: 25, scrollX: true });
+$(document).ready(function () {
+  $('#carparkTable').DataTable({
+    pageLength: 25,
+    lengthMenu: [10, 25, 50, 100],
+    scrollX: true
+  });
 });
 </script>
 </body>
 </html>
-``
