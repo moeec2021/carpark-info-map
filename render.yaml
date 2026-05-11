@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: carpark-table-app
+    name: carpark-info
     env: python
     pythonVersion: 3.11.9
     plan: free
@@ -9,10 +9,14 @@ services:
     autoDeploy: true
     envVars:
       - key: APP_TITLE
-        value: Singapore Carpark Locations
+        value: Singapore Carpark Info (Table View)
       - key: CKAN_ACTION_BASE
         value: https://data.gov.sg/api/action
-      - key: DATASET_ID
+      - key: RESOURCE_ID
         value: d_23f946fa557947f93a8043bbef41dd09
       - key: CACHE_TTL_SECONDS
-        value: '21600'
+        value: "21600"
+      - key: DISPLAY_MAX_ROWS
+        value: "2000"
+      - key: MAX_RECORDS
+        value: "20000"
