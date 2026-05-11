@@ -8,16 +8,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 
     <!-- DataTables (CDN) -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
+    />
   </head>
   <body>
     <header class="container">
       <h1>{{ title }}</h1>
+
       <div class="meta">
-        <div>
-          Dataset: <code>{{ dataset_id }}</code>
-          {% if resource_id %} | Resource: <code>{{ resource_id }}</code>{% endif %}
-        </div>
+        <div>Resource ID: <code>{{ resource_id }}</code></div>
         <div>
           {% if fetched_at %}
             Last fetched: <span>{{ fetched_at | int }}</span> (unix)
@@ -27,17 +28,23 @@
       </div>
 
       {% if error %}
-        <div class="alert">Failed to load data: <strong>{{ error }}</strong></div>
+        <div class="alert">
+          Failed to load data: <strong>{{ error }}</strong>
+        </div>
       {% endif %}
 
       <form method="get" class="controls">
         <label>
-          Filter (server-side contains search):
+          Filter (contains search across all fields):
           <input name="q" value="{{ q }}" placeholder="e.g. ANG MO KIO, BLK, CP3" />
         </label>
         <button type="submit">Apply</button>
-        <a class="button" href="/?refresh=1{% if q %}&q={{ q | urlencode }}{% endif %}">Refresh cache</a>
-        <a class="button" href="/download.csv{% if q %}?q={{ q | urlencode }}{% endif %}">Download CSV</a>
+        <a class="button" href="/?refresh=1{% if q %}&q={{ q | urlencode }}{% endif %}">
+          Refresh cache
+        </a>
+        <a class="button" href="/download.csv{% if q %}?q={{ q | urlencode }}{% endif %}">
+          Download CSV
+        </a>
       </form>
 
       <p class="hint">
@@ -68,17 +75,17 @@
     </main>
 
     <footer class="container footer">
-      <span>Built for deployment on Render.com • Flask + CKAN API</span>
+      <span>Render.com • Flask + data.gov.sg datastore_search</span>
     </footer>
 
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
     <script>
       $(function () {
-        $('#carparks').DataTable({
+        $("#carparks").DataTable({
           pageLength: 25,
           lengthMenu: [10, 25, 50, 100],
-          scrollX: true,
+          scrollX: true
         });
       });
     </script>
