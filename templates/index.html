@@ -1,30 +1,86 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>HDB Carpark Info</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-</head>
-<body class="container mt-4">
-    <h1>HDB Carpark Locations</h1>
-    <table class="table table-striped">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title }}</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+
+    <!-- DataTables (CDN) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+  </head>
+  <body>
+    <header class="container">
+      <h1>{{ title }}</h1>
+      <div class="meta">
+        <div>
+          Dataset: <code>{{ dataset_id }}</code>
+          {% if resource_id %} | Resource: <code>{{ resource_id }}</code>{% endif %}
+        </div>
+        <div>
+          {% if fetched_at %}
+            Last fetched: <span>{{ fetched_at | int }}</span> (unix)
+          {% endif %}
+          {% if total %} | Total (reported): {{ total }}{% endif %}
+        </div>
+      </div>
+
+      {% if error %}
+        <div class="alert">Failed to load data: <strong>{{ error }}</strong></div>
+      {% endif %}
+
+      <form method="get" class="controls">
+        <label>
+          Filter (server-side contains search):
+          <input name="q" value="{{ q }}" placeholder="e.g. ANG MO KIO, BLK, CP3" />
+        </label>
+        <button type="submit">Apply</button>
+        <a class="button" href="/?refresh=1{% if q %}&q={{ q | urlencode }}{% endif %}">Refresh cache</a>
+        <a class="button" href="/download.csv{% if q %}?q={{ q | urlencode }}{% endif %}">Download CSV</a>
+      </form>
+
+      <p class="hint">
+        Showing {{ shown }} row(s){% if filtered != shown %} (filtered from {{ filtered }}){% endif %}.
+        Display is capped at {{ display_max }} rows for browser performance.
+      </p>
+    </header>
+
+    <main class="container">
+      <table id="carparks" class="display" style="width: 100%">
         <thead>
-            <tr>
-                <th>Carpark No</th>
-                <th>Address</th>
-                <th>X Coord</th>
-                <th>Y Coord</th>
-            </tr>
+          <tr>
+            {% for c in cols %}
+              <th>{{ c }}</th>
+            {% endfor %}
+          </tr>
         </thead>
         <tbody>
-            {% for c in carparks %}
+          {% for r in rows %}
             <tr>
-                <td>{{ c['car_park_no'] }}</td>
-                <td>{{ c['address'] }}</td>
-                <td>{{ c['x_coord'] }}</td>
-                <td>{{ c['y_coord'] }}</td>
+              {% for c in cols %}
+                <td>{{ r.get(c, "") }}</td>
+              {% endfor %}
             </tr>
-            {% endfor %}
+          {% endfor %}
         </tbody>
-    </table>
-</body>
+      </table>
+    </main>
+
+    <footer class="container footer">
+      <span>Built for deployment on Render.com • Flask + CKAN API</span>
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <script>
+      $(function () {
+        $('#carparks').DataTable({
+          pageLength: 25,
+          lengthMenu: [10, 25, 50, 100],
+          scrollX: true,
+        });
+      });
+    </script>
+  </body>
 </html>
