@@ -1,229 +1,382 @@
 import os
 import time
-from typing import Any, Dict, List, Tuple
+import threading
+import csv
+import io
+from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
 import requests
-from flask import Flask, Response, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, url_for
 
-APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Info (Table View)")
 
-# IMPORTANT:
-# We do NOT call package_show (403 Forbidden on data.gov.sg for some dataset ids).
-# We call datastore_search directly using RESOURCE_ID (which is what your python query does).
-CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action").rstrip("/")
-RESOURCE_ID = os.getenv("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09").strip()
+def _get_env_str(name: str, default: str) -> str:
+    v = os.getenv(name)
+    return default if v is None or v == "" else v
 
-# Fetch controls
-FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))        # per page
-MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))       # safety cap
-CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", str(6 * 60 * 60)))  # 6 hours default
 
-# Display controls
-DISPLAY_MAX_ROWS = int(os.getenv("DISPLAY_MAX_ROWS", "2000"))
+def _get_env_int(name: str, default: int) -> int:
+    v = os.getenv(name)
+    if v is None or v == "":
+        return default
+    try:
+        return int(v)
+    except ValueError:
+        return default
 
-# HTTP controls
-HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
-USER_AGENT = os.getenv("USER_AGENT", "carpark-table-app/1.1")
+
+APP_TITLE = _get_env_str("APP_TITLE", "Singapore Carpark Info (Table View)")
+RESOURCE_ID = _get_env_str("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09")
+CKAN_ACTION_BASE = _get_env_str("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
+FETCH_LIMIT = _get_env_int("FETCH_LIMIT", 5000)
+MAX_RECORDS = _get_env_int("MAX_RECORDS", 20000)
+CACHE_TTL_SECONDS = _get_env_int("CACHE_TTL_SECONDS", 21600)
+DISPLAY_MAX_ROWS = _get_env_int("DISPLAY_MAX_ROWS", 2000)
+HTTP_TIMEOUT_SECONDS = _get_env_int("HTTP_TIMEOUT_SECONDS", 20)
+
+INTERNAL_KEYS_EXACT = {"_id", "_full_text"}
+
+# Heuristics to identify common fields for user-friendly labels.
+ADDRESS_FIELD_CANDIDATES = [
+    "address",
+    "carpark_address",
+    "car_park_address",
+    "location",
+    "street_name",
+    "street",
+    "road_name",
+    "building",
+    "name",
+]
+ID_FIELD_CANDIDATES = [
+    "car_park_no",
+    "carpark_no",
+    "carpark_number",
+    "carparkid",
+    "carpark_id",
+    "id",
+    "code",
+]
+LAT_FIELD_CANDIDATES = ["latitude", "lat"]
+LON_FIELD_CANDIDATES = ["longitude", "lon", "lng"]
 
 app = Flask(__name__)
 
-_cache: Dict[str, Any] = {
-    "fetched_at": 0.0,
-    "resource_id": RESOURCE_ID,
-    "records": [],
+_cache_lock = threading.Lock()
+_cache = {
+    "resource_id": None,
+    "expires_at": 0.0,
+    "fetched_at_iso": None,
+    "total_ckan": 0,
+    "fetched_count": 0,
+    "capped": False,
     "fields": [],
-    "error": None,
-    "total": 0,
+    "records": [],
+    "columns": [],
 }
 
 
-def _ckan_get(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    url = f"{CKAN_ACTION_BASE}/{action}"
-    headers = {"User-Agent": USER_AGENT}
-    resp = requests.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS, headers=headers)
-    resp.raise_for_status()
-    data = resp.json()
-    if not isinstance(data, dict) or not data.get("success"):
-        raise RuntimeError(f"CKAN action failed: {data}")
-    return data
+def _now_iso_local() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
-def fetch_all_records(resource_id: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]:
-    """Fetch records from datastore_search with pagination via offset/limit."""
-    records: List[Dict[str, Any]] = []
-    fields: List[Dict[str, Any]] = []
+def _datastore_search_url() -> str:
+    base = CKAN_ACTION_BASE.rstrip("/")
+    # PRIMARY REQUIREMENT: ONLY CKAN datastore_search endpoint (no package_show)
+    return f"{base}/datastore_search"
+
+
+def _derive_columns(fields, first_record):
+    cols = []
+    if fields:
+        for f in fields:
+            fid = f.get("id")
+            if not fid:
+                continue
+            if fid in INTERNAL_KEYS_EXACT:
+                continue
+            if fid.startswith("_"):
+                continue
+            cols.append(fid)
+    elif first_record:
+        for k in first_record.keys():
+            if k in INTERNAL_KEYS_EXACT:
+                continue
+            if k.startswith("_"):
+                continue
+            cols.append(k)
+    return cols
+
+
+def _fetch_all_from_ckan():
+    url = _datastore_search_url()
     offset = 0
-    total = 0
+    limit = max(1, FETCH_LIMIT)
+
+    all_records = []
+    fields = []
+    total_ckan = 0
+    capped = False
 
     while True:
-        limit = min(FETCH_LIMIT, MAX_RECORDS - len(records))
-        if limit <= 0:
+        params = {
+            "resource_id": RESOURCE_ID,
+            "limit": limit,
+            "offset": offset,
+        }
+        resp = requests.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        payload = resp.json()
+
+        if not payload.get("success"):
+            raise RuntimeError(f"CKAN response not successful: {payload}")
+
+        result = payload.get("result") or {}
+        if offset == 0:
+            total_ckan = int(result.get("total") or 0)
+            fields = result.get("fields") or []
+
+        batch = result.get("records") or []
+        if not batch:
             break
 
-        page = _ckan_get(
-            "datastore_search",
-            {
-                "resource_id": resource_id,
-                "limit": limit,
-                "offset": offset,
-            },
-        ).get("result", {})
+        all_records.extend(batch)
+        offset += len(batch)
 
-        if not fields:
-            fields = page.get("fields") or []
-
-        page_records = page.get("records") or []
-        total = int(page.get("total") or total or 0)
-
-        if not page_records:
+        if len(all_records) >= MAX_RECORDS:
+            all_records = all_records[:MAX_RECORDS]
+            capped = True
             break
 
-        records.extend(page_records)
-        offset += len(page_records)
-
-        if len(records) >= MAX_RECORDS:
-            break
-        if total > 0 and offset >= total:
+        if offset >= total_ckan:
             break
 
-    return records, fields, total
+    columns = _derive_columns(fields, all_records[0] if all_records else None)
+
+    return {
+        "resource_id": RESOURCE_ID,
+        "fetched_at_iso": _now_iso_local(),
+        "total_ckan": total_ckan,
+        "fetched_count": len(all_records),
+        "capped": capped or (len(all_records) < total_ckan and len(all_records) == MAX_RECORDS),
+        "fields": fields,
+        "records": all_records,
+        "columns": columns,
+    }
 
 
-def filter_records_contains(records: List[Dict[str, Any]], q: str) -> List[Dict[str, Any]]:
-    """Simple contains search across all fields (server-side)."""
+def _get_cached_data(force_refresh: bool):
+    now = time.time()
+
+    with _cache_lock:
+        cache_valid = (
+            _cache["resource_id"] == RESOURCE_ID
+            and _cache["records"]
+            and now < float(_cache["expires_at"])
+        )
+        if cache_valid and not force_refresh:
+            return dict(_cache)
+
+    fetched = _fetch_all_from_ckan()
+    expires_at = now + float(CACHE_TTL_SECONDS)
+
+    with _cache_lock:
+        _cache.update(fetched)
+        _cache["expires_at"] = expires_at
+
+    return dict(_cache)
+
+
+def _contains_filter(records, columns, q: str):
     if not q:
         return records
-    q_lower = q.lower()
+    ql = q.lower()
     out = []
-    for r in records:
-        for v in r.values():
-            if v is None:
+    for rec in records:
+        for col in columns:
+            val = rec.get(col, "")
+            if val is None:
                 continue
-            if q_lower in str(v).lower():
-                out.append(r)
+            if ql in str(val).lower():
+                out.append(rec)
                 break
     return out
 
 
-def get_data(force: bool = False) -> Dict[str, Any]:
-    now = time.time()
+def _find_first_column(columns, candidates):
+    colset = {c.lower(): c for c in columns}
+    for cand in candidates:
+        key = cand.lower()
+        if key in colset:
+            return colset[key]
+    return None
 
-    if (not force) and _cache["records"] and (now - _cache["fetched_at"] < CACHE_TTL_SECONDS):
-        return _cache
 
+def _safe_float(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if s == "":
+        return None
     try:
-        records, fields, total = fetch_all_records(RESOURCE_ID)
-
-        # Determine display column order from CKAN fields, fallback to record keys
-        if fields:
-            col_order = [f.get("id") for f in fields if f.get("id")]
-        else:
-            col_order = list(records[0].keys()) if records else []
-
-        # Remove internal keys if present
-        col_order = [c for c in col_order if c not in ("_id", "_full_text")]
-
-        _cache.update(
-            {
-                "fetched_at": now,
-                "resource_id": RESOURCE_ID,
-                "records": records,
-                "fields": col_order,
-                "error": None,
-                "total": total,
-            }
-        )
-    except Exception as e:
-        _cache.update(
-            {
-                "fetched_at": now,
-                "resource_id": RESOURCE_ID,
-                "error": str(e),
-                "records": [],
-                "fields": [],
-                "total": 0,
-            }
-        )
-
-    return _cache
+        return float(s)
+    except ValueError:
+        return None
 
 
-@app.get("/")
-def index():
-    q = request.args.get("q", "").strip()
-    force = request.args.get("refresh") == "1"
+def _build_map_locations(rows, columns):
+    """
+    Builds a list of map locations from displayed rows.
+    Prefers precise lat/lon when available:
+      query = "lat,lon"
+    Returns list[{label, lat, lon, query}]
+    """
+    id_col = _find_first_column(columns, ID_FIELD_CANDIDATES)
+    addr_col = _find_first_column(columns, ADDRESS_FIELD_CANDIDATES)
+    lat_col = _find_first_column(columns, LAT_FIELD_CANDIDATES)
+    lon_col = _find_first_column(columns, LON_FIELD_CANDIDATES)
 
-    data = get_data(force=force)
-    error = data.get("error")
+    seen = set()
+    locs = []
 
-    records = data.get("records", [])
-    cols = data.get("fields", [])
+    for r in rows:
+        lat = _safe_float(r.get(lat_col)) if lat_col else None
+        lon = _safe_float(r.get(lon_col)) if lon_col else None
+        if lat is None or lon is None:
+            # Dataset says it has lat/lon, but be defensive anyway.
+            continue
 
-    if q and records:
-        records = filter_records_contains(records, q)
+        # Dedupe by rounded coordinates (avoid near-duplicates)
+        key = (round(lat, 6), round(lon, 6))
+        if key in seen:
+            continue
+        seen.add(key)
 
-    # Cap display size for browser performance
-    records_to_show = records[:DISPLAY_MAX_ROWS]
+        label_parts = []
+        if id_col:
+            vid = r.get(id_col)
+            if vid not in (None, ""):
+                label_parts.append(str(vid))
 
-    return render_template(
-        "index.html",
-        title=APP_TITLE,
-        resource_id=data.get("resource_id"),
-        fetched_at=data.get("fetched_at"),
-        total=data.get("total"),
-        error=error,
-        q=q,
-        cols=cols,
-        rows=records_to_show,
-        shown=len(records_to_show),
-        filtered=len(records),
-        display_max=DISPLAY_MAX_ROWS,
-    )
+        if addr_col:
+            va = r.get(addr_col)
+            if va not in (None, ""):
+                label_parts.append(str(va))
 
+        if not label_parts:
+            label_parts.append(f"{lat:.6f},{lon:.6f}")
 
-@app.get("/download.csv")
-def download_csv():
-    q = request.args.get("q", "").strip()
-    data = get_data(force=False)
-    error = data.get("error")
-    if error:
-        return Response(f"Error: {error}\n", status=500, mimetype="text/plain")
+        label = " — ".join(label_parts[:2])  # keep labels compact
+        query = f"{lat},{lon}"
 
-    records = data.get("records", [])
-    cols = data.get("fields", [])
+        locs.append({"label": label, "lat": lat, "lon": lon, "query": query})
 
-    if q and records:
-        records = filter_records_contains(records, q)
-
-    def gen():
-        import csv
-        from io import StringIO
-
-        buf = StringIO()
-        writer = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
-        writer.writeheader()
-        yield buf.getvalue()
-        buf.seek(0)
-        buf.truncate(0)
-
-        for r in records:
-            writer.writerow(r)
-            yield buf.getvalue()
-            buf.seek(0)
-            buf.truncate(0)
-
-    return Response(
-        gen(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=carpark_info.csv"},
-    )
+    return locs
 
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    return jsonify({"ok": True})
+
+
+@app.get("/download.csv")
+def download_csv():
+    q = (request.args.get("q") or "").strip()
+    refresh = (request.args.get("refresh") or "").strip() == "1"
+
+    data = _get_cached_data(force_refresh=refresh)
+    columns = data.get("columns") or []
+    records = data.get("records") or []
+
+    filtered = _contains_filter(records, columns, q)
+
+    def generate():
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        writer.writerow(columns)
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        for rec in filtered:
+            writer.writerow([rec.get(c, "") for c in columns])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="carpark.csv"',
+        "Cache-Control": "no-store",
+    }
+    return Response(generate(), mimetype="text/csv; charset=utf-8", headers=headers)
+
+
+@app.get("/")
+def index():
+    q = (request.args.get("q") or "").strip()
+    refresh = (request.args.get("refresh") or "").strip() == "1"
+
+    error = None
+    data = None
+    try:
+        data = _get_cached_data(force_refresh=refresh)
+    except Exception as e:
+        error = str(e)
+
+    if data is None:
+        data = {
+            "resource_id": RESOURCE_ID,
+            "fetched_at_iso": None,
+            "total_ckan": 0,
+            "fetched_count": 0,
+            "capped": False,
+            "records": [],
+            "columns": [],
+        }
+
+    columns = data.get("columns") or []
+    records = data.get("records") or []
+    filtered = _contains_filter(records, columns, q)
+
+    display_rows = filtered[: max(0, DISPLAY_MAX_ROWS)]
+    displayed_count = len(display_rows)
+
+    refresh_url = url_for("index") + "?refresh=1"
+    if q:
+        refresh_url += "&q=" + quote_plus(q)
+
+    download_url = url_for("download_csv")
+    if q:
+        download_url += "?q=" + quote_plus(q)
+
+    clear_url = url_for("index")
+
+    map_locations = _build_map_locations(display_rows, columns)
+
+    return render_template(
+        "index.html",
+        app_title=APP_TITLE,
+        resource_id=data.get("resource_id", RESOURCE_ID),
+        fetched_at_iso=data.get("fetched_at_iso"),
+        total_ckan=data.get("total_ckan", 0),
+        fetched_count=data.get("fetched_count", 0),
+        capped=bool(data.get("capped", False)),
+        q=q,
+        filtered_count=len(filtered),
+        displayed_count=displayed_count,
+        display_max_rows=DISPLAY_MAX_ROWS,
+        columns=columns,
+        rows=display_rows,
+        refresh_url=refresh_url,
+        download_url=download_url,
+        clear_url=clear_url,
+        error=error,
+        map_locations=map_locations,
+    )
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
