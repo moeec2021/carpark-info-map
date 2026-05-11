@@ -1,197 +1,387 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ app_title }}</title>
+import os
+import time
+import threading
+import csv
+import io
+from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+import requests
+from flask import Flask, Response, jsonify, render_template, request, url_for
 
-    <!-- DataTables (CDN) -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-  </head>
 
-  <body>
-    <div class="container">
-      <header class="header">
-        <h1 class="title">{{ app_title }}</h1>
-        <p class="subtitle">Singapore carpark information from data.gov.sg (CKAN datastore_search)</p>
-      </header>
+def _get_env_str(name: str, default: str) -> str:
+    v = os.getenv(name)
+    return default if v is None or v == "" else v
 
-      <section class="card">
-        <div class="grid">
-          <div>
-            <div class="label">RESOURCE_ID</div>
-            <div class="value mono">{{ resource_id }}</div>
-          </div>
 
-          <div>
-            <div class="label">Last fetched</div>
-            <div class="value mono">
-              {% if fetched_at_iso %}
-                {{ fetched_at_iso }}
-              {% else %}
-                (not fetched yet)
-              {% endif %}
-            </div>
-          </div>
+def _get_env_int(name: str, default: int) -> int:
+    v = os.getenv(name)
+    if v is None or v == "":
+        return default
+    try:
+        return int(v)
+    except ValueError:
+        return default
 
-          <div>
-            <div class="label">CKAN total records</div>
-            <div class="value mono">{{ total_ckan }}</div>
-          </div>
 
-          <div>
-            <div class="label">Fetched / cached records</div>
-            <div class="value mono">
-              {{ fetched_count }}
-              {% if capped %}
-                <span class="pill warn">capped</span>
-              {% endif %}
-            </div>
-          </div>
-        </div>
+APP_TITLE = _get_env_str("APP_TITLE", "Singapore Carpark Info (Table View)")
+RESOURCE_ID = _get_env_str("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09")
+CKAN_ACTION_BASE = _get_env_str("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
+FETCH_LIMIT = _get_env_int("FETCH_LIMIT", 5000)
+MAX_RECORDS = _get_env_int("MAX_RECORDS", 20000)
+CACHE_TTL_SECONDS = _get_env_int("CACHE_TTL_SECONDS", 21600)
+DISPLAY_MAX_ROWS = _get_env_int("DISPLAY_MAX_ROWS", 2000)
+HTTP_TIMEOUT_SECONDS = _get_env_int("HTTP_TIMEOUT_SECONDS", 20)
 
-        {% if capped %}
-          <div class="note">
-            Safety cap reached (MAX_RECORDS). Increase MAX_RECORDS if you intentionally want more cached records.
-          </div>
-        {% endif %}
+INTERNAL_KEYS_EXACT = {"_id", "_full_text"}
 
-        {% if error %}
-          <div class="error">
-            <div class="error-title">Fetch error</div>
-            <div class="mono">{{ error }}</div>
-          </div>
-        {% endif %}
+# Heuristics to find "location" fields in arbitrary CKAN schemas
+ADDRESS_FIELD_CANDIDATES = [
+    "address",
+    "carpark_address",
+    "car_park_address",
+    "location",
+    "street_name",
+    "street",
+    "road_name",
+    "building",
+    "description",
+    "name",
+]
+ID_FIELD_CANDIDATES = [
+    "car_park_no",
+    "carpark_no",
+    "carpark_number",
+    "carparkid",
+    "carpark_id",
+    "id",
+    "code",
+]
+LAT_FIELD_CANDIDATES = ["latitude", "lat"]
+LON_FIELD_CANDIDATES = ["longitude", "lon", "lng"]
 
-        <div class="toolbar">
-          <form method="get" action="{{ url_for('index') }}" class="filter">
-            <label for="q" class="label-inline">Contains filter (server-side):</label>
-            <input id="q" name="q" type="text" value="{{ q }}" placeholder="Search across all fields..." />
-            <button type="submit">Apply</button>
-          </form>
 
-          <div class="links">
-            <a class="link" href="{{ refresh_url }}">Refresh cache</a>
-            <a class="link" href="{{ download_url }}">Download CSV</a>
-            <a class="link" href="{{ clear_url }}">Clear filter</a>
-          </div>
-        </div>
+app = Flask(__name__)
 
-        <div class="meta">
-          <span>Filtered records: <span class="mono">{{ filtered_count }}</span></span>
-          <span>Displayed rows: <span class="mono">{{ displayed_count }}</span> / <span class="mono">{{ display_max_rows }}</span></span>
-          <span>Map locations prepared: <span class="mono">{{ map_locations|length }}</span></span>
-        </div>
+_cache_lock = threading.Lock()
+_cache = {
+    "resource_id": None,
+    "expires_at": 0.0,
+    "fetched_at_iso": None,
+    "total_ckan": 0,
+    "fetched_count": 0,
+    "capped": False,
+    "fields": [],
+    "records": [],
+    "columns": [],
+}
 
-        <div class="map-toolbar">
-          <button id="toggleMapBtn" type="button">Show Map</button>
-          <span class="muted">Embedded Google Map defaults to Singapore main island; pick a displayed carpark to jump to its lat/lon.</span>
-        </div>
 
-        <div id="mapSection" class="map-section" style="display: none;">
-          <div class="map-controls">
-            <label class="label-inline" for="mapSelect">Displayed carpark locations:</label>
-            <select id="mapSelect">
-              <option value="">Singapore (main island)</option>
-              {% for loc in map_locations %}
-                <option value="{{ loc.query }}">{{ loc.label }}</option>
-              {% endfor %}
-            </select>
+def _now_iso_local() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
-            <a class="link" id="openMapsLink" href="https://www.google.com/maps?q=Singapore" target="_blank" rel="noopener">
-              Open in Google Maps
-            </a>
-          </div>
 
-          <div class="map-frame-wrap">
-            <iframe
-              id="mapFrame"
-              class="map-frame"
-              loading="lazy"
-              referrerpolicy="no-referrer-when-downgrade"
-              src="https://www.google.com/maps?q=Singapore&z=12&output=embed">
-            </iframe>
-          </div>
+def _datastore_search_url() -> str:
+    base = CKAN_ACTION_BASE.rstrip("/")
+    # PRIMARY REQUIREMENT: ONLY CKAN datastore_search endpoint (no package_show)
+    return f"{base}/datastore_search"
 
-          <div class="note">
-            Tip: Using precise coordinates (lat/lon) avoids address ambiguity. The embed iframe shows one selected location at a time without requiring an API key.
-          </div>
-        </div>
-      </section>
 
-      <section class="card">
-        <div class="table-wrap">
-          <table id="carparkTable" class="display compact" style="width: 100%;">
-            <thead>
-              <tr>
-                {% for col in columns %}
-                  <th>{{ col }}</th>
-                {% endfor %}
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in rows %}
-                <tr>
-                  {% for col in columns %}
-                    <td>{{ r.get(col, "") }}</td>
-                  {% endfor %}
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
+def _derive_columns(fields, first_record):
+    cols = []
+    if fields:
+        for f in fields:
+            fid = f.get("id")
+            if not fid:
+                continue
+            if fid in INTERNAL_KEYS_EXACT:
+                continue
+            if fid.startswith("_"):
+                continue
+            cols.append(fid)
+    elif first_record:
+        for k in first_record.keys():
+            if k in INTERNAL_KEYS_EXACT:
+                continue
+            if k.startswith("_"):
+                continue
+            cols.append(k)
+    return cols
 
-      <footer class="footer">
-        <span class="mono">/healthz</span> available for uptime checks.
-      </footer>
-    </div>
 
-    <script>
-      $(document).ready(function () {
-        $('#carparkTable').DataTable({
-          pageLength: 25,
-          lengthMenu: [10, 25, 50, 100],
-          scrollX: true,
-          order: [],
-          deferRender: true
-        });
+def _fetch_all_from_ckan():
+    url = _datastore_search_url()
+    offset = 0
+    limit = max(1, FETCH_LIMIT)
 
-        const mapSection = document.getElementById('mapSection');
-        const toggleMapBtn = document.getElementById('toggleMapBtn');
-        const mapSelect = document.getElementById('mapSelect');
-        const mapFrame = document.getElementById('mapFrame');
-        const openMapsLink = document.getElementById('openMapsLink');
+    all_records = []
+    fields = []
+    total_ckan = 0
+    capped = False
 
-        function setMapQuery(q) {
-          const query = (q && q.trim()) ? q.trim() : "Singapore";
-          const encoded = encodeURIComponent(query);
+    while True:
+        params = {
+            "resource_id": RESOURCE_ID,
+            "limit": limit,
+            "offset": offset,
+        }
+        resp = requests.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        payload = resp.json()
 
-          // Zoom in when coordinates are selected; otherwise default Singapore overview.
-          const isCoord = query.includes(",") && /-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?/.test(query);
-          const zoom = isCoord ? 16 : 12;
+        if not payload.get("success"):
+            raise RuntimeError(f"CKAN response not successful: {payload}")
 
-          mapFrame.src = "https://www.google.com/maps?q=" + encoded + "&z=" + zoom + "&output=embed";
-          openMapsLink.href = "https://www.google.com/maps?q=" + encoded;
+        result = payload.get("result") or {}
+        if offset == 0:
+            total_ckan = int(result.get("total") or 0)
+            fields = result.get("fields") or []
+
+        batch = result.get("records") or []
+        if not batch:
+            break
+
+        all_records.extend(batch)
+        offset += len(batch)
+
+        if len(all_records) >= MAX_RECORDS:
+            all_records = all_records[:MAX_RECORDS]
+            capped = True
+            break
+
+        if offset >= total_ckan:
+            break
+
+    columns = _derive_columns(fields, all_records[0] if all_records else None)
+
+    return {
+        "resource_id": RESOURCE_ID,
+        "fetched_at_iso": _now_iso_local(),
+        "total_ckan": total_ckan,
+        "fetched_count": len(all_records),
+        "capped": capped or (len(all_records) < total_ckan and len(all_records) == MAX_RECORDS),
+        "fields": fields,
+        "records": all_records,
+        "columns": columns,
+    }
+
+
+def _get_cached_data(force_refresh: bool):
+    now = time.time()
+
+    with _cache_lock:
+        cache_valid = (
+            _cache["resource_id"] == RESOURCE_ID
+            and _cache["records"]
+            and now < float(_cache["expires_at"])
+        )
+        if cache_valid and not force_refresh:
+            return dict(_cache)
+
+    fetched = _fetch_all_from_ckan()
+    expires_at = now + float(CACHE_TTL_SECONDS)
+
+    with _cache_lock:
+        _cache.update(fetched)
+        _cache["expires_at"] = expires_at
+
+    return dict(_cache)
+
+
+def _contains_filter(records, columns, q: str):
+    if not q:
+        return records
+    ql = q.lower()
+    out = []
+    for rec in records:
+        for col in columns:
+            val = rec.get(col, "")
+            if val is None:
+                continue
+            if ql in str(val).lower():
+                out.append(rec)
+                break
+    return out
+
+
+def _find_first_column(columns, candidates):
+    colset = {c.lower(): c for c in columns}
+    for cand in candidates:
+        key = cand.lower()
+        if key in colset:
+            return colset[key]
+    return None
+
+
+def _build_map_locations(rows, columns):
+    """
+    Builds a list of map locations from displayed rows.
+    - If lat/lon exist: use "lat,lon"
+    - Else: use address-ish field + " Singapore"
+    Returns list[{label, query}]
+    """
+    id_col = _find_first_column(columns, ID_FIELD_CANDIDATES)
+    addr_col = _find_first_column(columns, ADDRESS_FIELD_CANDIDATES)
+    lat_col = _find_first_column(columns, LAT_FIELD_CANDIDATES)
+    lon_col = _find_first_column(columns, LON_FIELD_CANDIDATES)
+
+    seen = set()
+    locs = []
+
+    for r in rows:
+        label_parts = []
+        if id_col:
+            v = r.get(id_col)
+            if v not in (None, ""):
+                label_parts.append(str(v))
+
+        query = None
+        if lat_col and lon_col:
+            lat = r.get(lat_col)
+            lon = r.get(lon_col)
+            if lat not in (None, "") and lon not in (None, ""):
+                query = f"{lat},{lon}"
+                if not label_parts and addr_col:
+                    av = r.get(addr_col)
+                    if av not in (None, ""):
+                        label_parts.append(str(av))
+
+        if query is None:
+            if addr_col:
+                av = r.get(addr_col)
+                if av not in (None, ""):
+                    query = f"{av} Singapore"
+                    if not label_parts:
+                        label_parts.append(str(av))
+
+        # Fallback: build a compact label/query from first few columns
+        if query is None:
+            bits = []
+            for c in columns[:4]:
+                v = r.get(c)
+                if v not in (None, ""):
+                    bits.append(str(v))
+            if bits:
+                query = " ".join(bits) + " Singapore"
+                if not label_parts:
+                    label_parts.append(" - ".join(bits[:2]))
+
+        if query is None:
+            continue
+
+        key = query.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        label = " — ".join(label_parts) if label_parts else query
+        locs.append({"label": label, "query": query})
+
+    return locs
+
+
+@app.get("/healthz")
+def healthz():
+    return jsonify({"ok": True})
+
+
+@app.get("/download.csv")
+def download_csv():
+    q = (request.args.get("q") or "").strip()
+    refresh = (request.args.get("refresh") or "").strip() == "1"
+
+    data = _get_cached_data(force_refresh=refresh)
+    columns = data.get("columns") or []
+    records = data.get("records") or []
+
+    filtered = _contains_filter(records, columns, q)
+
+    def generate():
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        writer.writerow(columns)
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        for rec in filtered:
+            writer.writerow([rec.get(c, "") for c in columns])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="carpark.csv"',
+        "Cache-Control": "no-store",
+    }
+    return Response(generate(), mimetype="text/csv; charset=utf-8", headers=headers)
+
+
+@app.get("/")
+def index():
+    q = (request.args.get("q") or "").strip()
+    refresh = (request.args.get("refresh") or "").strip() == "1"
+
+    error = None
+    data = None
+    try:
+        data = _get_cached_data(force_refresh=refresh)
+    except Exception as e:
+        error = str(e)
+
+    if data is None:
+        data = {
+            "resource_id": RESOURCE_ID,
+            "fetched_at_iso": None,
+            "total_ckan": 0,
+            "fetched_count": 0,
+            "capped": False,
+            "records": [],
+            "columns": [],
         }
 
-        toggleMapBtn.addEventListener('click', function () {
-          const isHidden = mapSection.style.display === 'none';
-          mapSection.style.display = isHidden ? 'block' : 'none';
-          toggleMapBtn.textContent = isHidden ? 'Hide Map' : 'Show Map';
-          if (isHidden) {
-            setMapQuery(mapSelect.value);
-          }
-        });
+    columns = data.get("columns") or []
+    records = data.get("records") or []
+    filtered = _contains_filter(records, columns, q)
 
-        mapSelect.addEventListener('change', function () {
-          setMapQuery(mapSelect.value);
-        });
-      });
-    </script>
-  </body>
-</html>
+    display_rows = filtered[: max(0, DISPLAY_MAX_ROWS)]
+    displayed_count = len(display_rows)
+
+    refresh_url = url_for("index") + "?refresh=1"
+    if q:
+        refresh_url += "&q=" + quote_plus(q)
+
+    download_url = url_for("download_csv")
+    if q:
+        download_url += "?q=" + quote_plus(q)
+
+    clear_url = url_for("index")
+
+    map_locations = _build_map_locations(display_rows, columns)
+
+    return render_template(
+        "index.html",
+        app_title=APP_TITLE,
+        resource_id=data.get("resource_id", RESOURCE_ID),
+        fetched_at_iso=data.get("fetched_at_iso"),
+        total_ckan=data.get("total_ckan", 0),
+        fetched_count=data.get("fetched_count", 0),
+        capped=bool(data.get("capped", False)),
+        q=q,
+        filtered_count=len(filtered),
+        displayed_count=displayed_count,
+        display_max_rows=DISPLAY_MAX_ROWS,
+        columns=columns,
+        rows=display_rows,
+        refresh_url=refresh_url,
+        download_url=download_url,
+        clear_url=clear_url,
+        error=error,
+        map_locations=map_locations,
+    )
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
