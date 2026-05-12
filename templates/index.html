@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  {{ url_for('static', filename='style.css') }}
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -13,6 +13,7 @@
 
 <body>
 <div class="container">
+
   <h1>{{ app_title }}</h1>
 
   <p>Resource ID: {{ resource_id }}</p>
@@ -29,14 +30,19 @@
     </button>
 
     <div id="mapContainer" style="display:none; margin-top:15px;">
-      https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14
+      <iframe
+        src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14"
+        width="100%"
+        height="450"
+        style="border:0;">
       </iframe>
 
       <h3>Locations</h3>
       <ul>
         {% for lat, lon in map_points %}
           <li>
-            https://www.onemap.gov.sg/main/v2/?lat={{ lat }}&lng={{ lon }}&zoom=17
+            <a target="_blank"
+               href="https://www.onemap.gov.sg/main/v2/?lat={{ lat }}&lng={{ lon }}&zoom=17">
               {{ lat }}, {{ lon }}
             </a>
           </li>
@@ -64,6 +70,7 @@
       {% endfor %}
     </tbody>
   </table>
+
 </div>
 
 <script>
