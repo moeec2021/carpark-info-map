@@ -24,9 +24,11 @@
     <button type="submit">Search</button>
   </form>
 
-  {% if map_url %}
-    <button id="showMapBtn">Show Google Map (First {{ map_count }} Locations)</button>
+  <button id="showMapBtn" {% if not map_url %}disabled{% endif %}>
+    Show Google Map (First {{ map_count }} Locations)
+  </button>
 
+  {% if map_url %}
     <div id="mapContainer" style="display:none; margin-top:15px;">
       <iframe
         src="{{ map_url }}&output=embed"
@@ -37,6 +39,10 @@
         loading="lazy">
       </iframe>
     </div>
+  {% else %}
+    <p style="color:#aaa; margin-top:10px;">
+      Map requires at least 2 rows with valid x_coord/y_coord to compute latitude/longitude.
+    </p>
   {% endif %}
 
   <h2>Carpark Data</h2>
@@ -66,7 +72,8 @@ $(document).ready(function () {
   $('#carparkTable').DataTable({
     pageLength: 25,
     lengthMenu: [10,25,50,100],
-    scrollX: true
+    scrollX: true,
+    searching: false
   });
 
   $('#showMapBtn').click(function () {
