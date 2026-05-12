@@ -1,7 +1,8 @@
 import os
 import time
 import threading
-import math requestsimport math
+import math
+import requests
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify
 
