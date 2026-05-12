@@ -1,61 +1,79 @@
-    
-  {{ app_title }}  
-  {{ url_for('static', filename='style.css') }}
-https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css
-  https://code.jquery.com/jquery-3.7.1.min.jsscript>
-https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.jsscript>
-  
-  
-  
-  {{ app_title }}
-  Resource ID: {{ resource_id }}
-Last fetched: {{ fetched_at }} | Total records: {{ total_ckan }}
-  
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{ app_title }}</title>
 
-Search
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
-  {% if map_url %}
-Show Google Map (First {{ map_count }} Locations)
-    
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+</head>
 
-src="{{ map_url }}&output=embed"
-width="100%"
-height="450"
-style="border:0;"
-allowfullscreen
-loading="lazy">
+<body>
+<div class="container">
 
+  <h1>{{ app_title }}</h1>
 
-{% endif %}
-  Carpark Data
+  <p>Resource ID: {{ resource_id }}</p>
+  <p>Last fetched: {{ fetched_at }} | Total records: {{ total_ckan }}</p>
 
+  <form method="get">
+    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter">
+    <button type="submit">Search</button>
+  </form>
 
+  {% if map_url %}
+    <button id="showMapBtn">Show Google Map (First {{ map_count }} Locations)</button>
 
-{% for col in columns %}
+    <div id="mapContainer" style="display:none; margin-top:15px;">
+      <iframe
+        src="{{ map_url }}&output=embed"
+        width="100%"
+        height="450"
+        style="border:0;"
+        allowfullscreen
+        loading="lazy">
+      </iframe>
+    </div>
+  {% endif %}
 
-{% endfor %}
+  <h2>Carpark Data</h2>
+  <table id="carparkTable" class="display">
+    <thead>
+      <tr>
+        {% for col in columns %}
+          <th>{{ col }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          {% for col in columns %}
+            <td>{{ r.get(col, "") }}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
+</div>
 
+<script>
+$(document).ready(function () {
+  $('#carparkTable').DataTable({
+    pageLength: 25,
+    lengthMenu: [10,25,50,100],
+    scrollX: true
+  });
 
-{% for r in rows %}
-
-{% for col in columns %}
-
-{% endfor %}
-
-{% endfor %}
-
-{{ col }}{{ r.get(col, "") }}
-  
-  
-$(document).ready(function () {  
-  $('#carparkTable').DataTable({  
-    pageLength: 25,  
-    lengthMenu: [10,25,50,100],  
-    scrollX: true  
-  });  
-
-  $('#showMapBtn').click(function () {  
-    $('#mapContainer').toggle();  
-  });  
+  $('#showMapBtn').click(function () {
+    $('#mapContainer').toggle();
+  });
 });
+</script>
+
+</body>
+</html>
