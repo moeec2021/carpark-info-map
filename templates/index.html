@@ -12,15 +12,16 @@
 </head>
 
 <body>
+
 <div class="container">
 
   <h1>{{ app_title }}</h1>
 
-  <p>Resource ID: {{ resource_id }}</p>
-  <p>Last fetched: {{ fetched_at }} | Total records: {{ total_ckan }}</p>
+  <p><b>Resource ID:</b> {{ resource_id }}</p>
+  <p><b>Last fetched:</b> {{ fetched_at }} | <b>Total records:</b> {{ total_ckan }}</p>
 
   <form method="get">
-    <input name="q" value="{{ q }}" placeholder="Contains filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter">
     <button type="submit">Search</button>
   </form>
 
@@ -31,27 +32,18 @@
 
     <div id="mapContainer" style="display:none; margin-top:15px;">
       <iframe
-        src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14"
         width="100%"
         height="450"
-        style="border:0;">
+        style="border:0;"
+        loading="lazy"
+        allowfullscreen
+        src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14">
       </iframe>
-
-      <h3>Locations</h3>
-      <ul>
-        {% for lat, lon in map_points %}
-          <li>
-            <a target="_blank"
-               href="https://www.onemap.gov.sg/main/v2/?lat={{ lat }}&lng={{ lon }}&zoom=17">
-              {{ lat }}, {{ lon }}
-            </a>
-          </li>
-        {% endfor %}
-      </ul>
     </div>
   {% endif %}
 
   <h2>Carpark Data</h2>
+
   <table id="carparkTable" class="display">
     <thead>
       <tr>
@@ -74,14 +66,14 @@
 </div>
 
 <script>
-$(function () {
+$(document).ready(function () {
   $('#carparkTable').DataTable({
     pageLength: 25,
     scrollX: true,
     searching: false
   });
 
-  $('#toggleMapBtn').click(function () {
+  $('#toggleMapBtn').on('click', function () {
     $('#mapContainer').toggle();
   });
 });
