@@ -148,3 +148,149 @@ def svy21_to_wgs84(easting, northing):
     phi1 = mu + J1 * math.sin(2 * mu) + J2 * math.sin(4 * mu) + J3 * math.sin(6 * mu) + J4 * math.sin(8 * mu)
 
     sin1 = math.sin(phi1)
+    cos1 = math.cos(phi1)
+    tan1 = math.tan(phi1)
+
+    N1 = a / math.sqrt(1 - e2 * sin1 * sin1)
+    R1 = a * (1 - e2) / ((1 - e2 * sin1 * sin1) ** 1.5)
+    T1 = tan1 * tan1
+    C1 = ep2 * cos1 * cos1
+    D = x / N1
+
+    # Latitude
+    lat = phi1 - (N1 * tan1 / R1) * (
+        (D * D) / 2
+        - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * (D ** 4) / 24
+        + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * (D ** 6) / 720
+    )
+
+    # Longitude
+    lon = lon0 + (
+        D
+        - (1 + 2 * T1 + C1) * (D ** 3) / 6
+        + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * (D ** 5) / 120
+    ) / cos1
+
+    # Return in EPSG:4326 axis order (lat, lon), matching your pyproj sample
+    return math.degrees(lat), math.degrees(lon)
+
+
+def add_lat_lon_columns(records, columns):
+    # Detect input SVY21 columns
+    x_col = find_column_case_insensitive(columns, X_CANDIDATES)
+    y_col = find_column_case_insensitive(columns, Y_CANDIDATES)
+
+    # Append output columns if not present
+    if OUT_LAT_COL not in columns:
+        columns = columns + [OUT_LAT_COL]
+    if OUT_LON_COL not in columns:
+        columns = columns + [OUT_LON_COL]
+
+    # If we can't find x/y, just return with blanks for lat/lon
+    if not x_col or not y_col:
+        new_records = []
+        for r in records:
+            rr = dict(r)
+            if OUT_LAT_COL not in rr:
+                rr[OUT_LAT_COL] = ""
+            if OUT_LON_COL not in rr:
+                rr[OUT_LON_COL] = ""
+            new_records.append(rr)
+        return new_records, columns, None, None
+
+    new_records = []
+    for r in records:
+        rr = dict(r)
+        x = safe_float(rr.get(x_col))
+        y = safe_float(rr.get(y_col))
+        if x is None or y is None:
+            rr[OUT_LAT_COL] = ""
+            rr[OUT_LON_COL] = ""
+        else:
+            lat, lon = svy21_to_wgs84(x, y)
+            rr[OUT_LAT_COL] = "{0:.6f}".format(lat)
+            rr[OUT_LON_COL] = "{0:.6f}".format(lon)
+        new_records.append(rr)
+
+    return new_records, columns, OUT_LAT_COL, OUT_LON_COL
+
+
+def get_data(refresh=False):
+    with _cache_lock:
+        if not refresh and _cache.get("expires", 0) > time.time():
+            return _cache
+
+    records, total = fetch_all()
+    columns = [k for k in records[0] if not k.startswith("_")] if records else []
+
+    # Add computed latitude/longitude columns from x_coord/y_coord
+    records2, columns2, lat_col, lon_col = add_lat_lon_columns(records, columns)
+
+    with _cache_lock:
+        _cache.update({
+            "records": records2,
+            "columns": columns2,
+            "lat_col": lat_col,
+            "lon_col": lon_col,
+            "total": total,
+            "fetched": now_iso(),
+            "expires": time.time() + CACHE_TTL_SECONDS
+        })
+
+    return _cache
+
+
+@app.route("/", methods=["GET"])
+def index():
+    q = (request.args.get("q") or "").lower()
+    refresh = request.args.get("refresh") == "1"
+
+    data = get_data(refresh)
+    rows = data["records"]
+    columns = data["columns"]
+    lat_col = data.get("lat_col")
+    lon_col = data.get("lon_col")
+
+    if q:
+        rows = [r for r in rows if any(q in str(v).lower() for v in r.values())]
+
+    rows = rows[:DISPLAY_MAX_ROWS]
+
+    # Build Google Maps URL using up to first 20 unique computed lat/lon locations
+    seen = set()
+    points = []
+
+    if lat_col and lon_col:
+        for r in rows:
+            lat = safe_float(r.get(lat_col))
+            lon = safe_float(r.get(lon_col))
+            if lat is None or lon is None:
+                continue
+            key = (round(lat, 6), round(lon, 6))
+            if key not in seen:
+                seen.add(key)
+                points.append(str(lat) + "," + str(lon))
+            if len(points) == 20:
+                break
+
+    map_url = None
+    if len(points) >= 2:
+        map_url = "https://www.google.com/maps/dir/" + "/".join(points)
+
+    return render_template(
+        "index.html",
+        app_title=APP_TITLE,
+        resource_id=RESOURCE_ID,
+        fetched_at=data["fetched"],
+        total_ckan=data["total"],
+        columns=columns,
+        rows=rows,
+        map_url=map_url,
+        map_count=len(points),
+        q=q
+    )
+
+
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    return jsonify(ok=True)
