@@ -1,8 +1,7 @@
 import os
 import time
 import threading
-import math
-import requests
+import math requestsimport math
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify
 
@@ -21,11 +20,9 @@ CACHE_TTL_SECONDS = int(env("CACHE_TTL_SECONDS", 21600))
 DISPLAY_MAX_ROWS = int(env("DISPLAY_MAX_ROWS", 2000))
 HTTP_TIMEOUT_SECONDS = int(env("HTTP_TIMEOUT_SECONDS", 20))
 
-# Output columns (will be appended if not already present)
 OUT_LAT_COL = "latitude"
 OUT_LON_COL = "longitude"
 
-# Auto-detect SVY21 input columns (Easting/Northing in metres)
 X_CANDIDATES = ["x_coord", "x", "easting", "east", "X_COORD", "X", "EASTING", "EAST"]
 Y_CANDIDATES = ["y_coord", "y", "northing", "north", "Y_COORD", "Y", "NORTHING", "NORTH"]
 
@@ -70,7 +67,6 @@ def fetch_all():
 
 
 def find_column_case_insensitive(columns, candidates):
-    # returns actual column name from dataset that matches any candidate (case-insensitive)
     lc_map = {c.lower(): c for c in columns}
     for cand in candidates:
         hit = lc_map.get(cand.lower())
@@ -93,16 +89,7 @@ def safe_float(v):
         return None
 
 
-# SVY21 (EPSG:3414) inverse Transverse Mercator to WGS84 lat/lon (EPSG:4326)
-# Uses parameters explicitly stated in SVY21 specs:
-# - Central Meridian: 103°50'00"E
-# - Latitude of Origin: 1°22'00"N
-# - False Easting: 28001.642 m
-# - False Northing: 38744.572 m
-# - Scale Factor at CM: 1.000
-# - Ellipsoid: WGS84 a=6378137, inv_f=298.257223563
 def svy21_to_wgs84(easting, northing):
-    # WGS84 ellipsoid
     a = 6378137.0
     inv_f = 298.257223563
     f = 1.0 / inv_f
@@ -111,18 +98,15 @@ def svy21_to_wgs84(easting, northing):
     e2 = (a * a - b * b) / (a * a)
     ep2 = e2 / (1.0 - e2)
 
-    # SVY21 projection params
-    lat0 = math.radians(1.3666666666666667)      # 1°22'00"N
-    lon0 = math.radians(103.83333333333333)      # 103°50'00"E
+    lat0 = math.radians(1.3666666666666667)
+    lon0 = math.radians(103.83333333333333)
     FE = 28001.642
     FN = 38744.572
     k0 = 1.0
 
-    # Remove false origin and scale
     x = (easting - FE) / k0
     y = (northing - FN) / k0
 
-    # Meridional arc
     e4 = e2 * e2
     e6 = e4 * e2
 
@@ -136,7 +120,6 @@ def svy21_to_wgs84(easting, northing):
     M0 = meridional_arc(lat0)
     M = M0 + y
 
-    # Footpoint latitude
     mu = M / (a * (1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256))
     e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
 
@@ -157,44 +140,36 @@ def svy21_to_wgs84(easting, northing):
     C1 = ep2 * cos1 * cos1
     D = x / N1
 
-    # Latitude
     lat = phi1 - (N1 * tan1 / R1) * (
         (D * D) / 2
         - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * (D ** 4) / 24
         + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * (D ** 6) / 720
     )
 
-    # Longitude
     lon = lon0 + (
         D
         - (1 + 2 * T1 + C1) * (D ** 3) / 6
         + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * (D ** 5) / 120
     ) / cos1
 
-    # Return in EPSG:4326 axis order (lat, lon), matching your pyproj sample
     return math.degrees(lat), math.degrees(lon)
 
 
 def add_lat_lon_columns(records, columns):
-    # Detect input SVY21 columns
     x_col = find_column_case_insensitive(columns, X_CANDIDATES)
     y_col = find_column_case_insensitive(columns, Y_CANDIDATES)
 
-    # Append output columns if not present
     if OUT_LAT_COL not in columns:
         columns = columns + [OUT_LAT_COL]
     if OUT_LON_COL not in columns:
         columns = columns + [OUT_LON_COL]
 
-    # If we can't find x/y, just return with blanks for lat/lon
     if not x_col or not y_col:
         new_records = []
         for r in records:
             rr = dict(r)
-            if OUT_LAT_COL not in rr:
-                rr[OUT_LAT_COL] = ""
-            if OUT_LON_COL not in rr:
-                rr[OUT_LON_COL] = ""
+            rr.setdefault(OUT_LAT_COL, "")
+            rr.setdefault(OUT_LON_COL, "")
             new_records.append(rr)
         return new_records, columns, None, None
 
@@ -215,6 +190,15 @@ def add_lat_lon_columns(records, columns):
     return new_records, columns, OUT_LAT_COL, OUT_LON_COL
 
 
+def make_embed_url(url):
+    if not url:
+        return None
+    if "output=embed" in url:
+        return url
+    joiner = "&" if "?" in url else "?"
+    return url + joiner + "output=embed"
+
+
 def get_data(refresh=False):
     with _cache_lock:
         if not refresh and _cache.get("expires", 0) > time.time():
@@ -223,7 +207,6 @@ def get_data(refresh=False):
     records, total = fetch_all()
     columns = [k for k in records[0] if not k.startswith("_")] if records else []
 
-    # Add computed latitude/longitude columns from x_coord/y_coord
     records2, columns2, lat_col, lon_col = add_lat_lon_columns(records, columns)
 
     with _cache_lock:
@@ -256,7 +239,6 @@ def index():
 
     rows = rows[:DISPLAY_MAX_ROWS]
 
-    # Build Google Maps URL using up to first 20 unique computed lat/lon locations
     seen = set()
     points = []
 
@@ -277,6 +259,8 @@ def index():
     if len(points) >= 2:
         map_url = "https://www.google.com/maps/dir/" + "/".join(points)
 
+    map_embed_url = make_embed_url(map_url)
+
     return render_template(
         "index.html",
         app_title=APP_TITLE,
@@ -286,6 +270,7 @@ def index():
         columns=columns,
         rows=rows,
         map_url=map_url,
+        map_embed_url=map_embed_url,
         map_count=len(points),
         q=q
     )
