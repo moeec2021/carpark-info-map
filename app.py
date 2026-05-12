@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+import math
 import requests
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify
@@ -20,8 +21,13 @@ CACHE_TTL_SECONDS = int(env("CACHE_TTL_SECONDS", 21600))
 DISPLAY_MAX_ROWS = int(env("DISPLAY_MAX_ROWS", 2000))
 HTTP_TIMEOUT_SECONDS = int(env("HTTP_TIMEOUT_SECONDS", 20))
 
-LAT_CANDIDATES = ["latitude", "lat", "Latitude", "LAT"]
-LON_CANDIDATES = ["longitude", "lon", "lng", "Longitude", "LON"]
+# Output columns (will be appended if not already present)
+OUT_LAT_COL = "latitude"
+OUT_LON_COL = "longitude"
+
+# Auto-detect SVY21 input columns (Easting/Northing in metres)
+X_CANDIDATES = ["x_coord", "x", "easting", "east", "X_COORD", "X", "EASTING", "EAST"]
+Y_CANDIDATES = ["y_coord", "y", "northing", "north", "Y_COORD", "Y", "NORTHING", "NORTH"]
 
 app = Flask(__name__)
 _cache = {}
@@ -51,9 +57,9 @@ def fetch_all():
         result = r.json()["result"]
 
         if total is None:
-            total = result["total"]
+            total = result.get("total", 0)
 
-        batch = result["records"]
+        batch = result.get("records", [])
         records.extend(batch)
         offset += len(batch)
 
@@ -63,32 +69,82 @@ def fetch_all():
     return records[:MAX_RECORDS], total
 
 
-def find_coord_columns(columns):
-    lat_col = next((c for c in columns if c in LAT_CANDIDATES), None)
-    lon_col = next((c for c in columns if c in LON_CANDIDATES), None)
-    return lat_col, lon_col
+def find_column_case_insensitive(columns, candidates):
+    # returns actual column name from dataset that matches any candidate (case-insensitive)
+    lc_map = {c.lower(): c for c in columns}
+    for cand in candidates:
+        hit = lc_map.get(cand.lower())
+        if hit:
+            return hit
+    return None
 
 
-def get_data(refresh=False):
-    with _cache_lock:
-        if not refresh and _cache.get("expires", 0) > time.time():
-            return _cache
-
-    records, total = fetch_all()
-    columns = [k for k in records[0] if not k.startswith("_")] if records else []
-    lat_col, lon_col = find_coord_columns(columns)
-
-    with _cache_lock:
-        _cache.update({
-            "records": records,
-            "columns": columns,
-            "lat_col": lat_col,
-            "lon_col": lon_col,
-            "total": total,
-            "fetched": now_iso(),
-            "expires": time.time() + CACHE_TTL_SECONDS
-        })
-
-    return _cache
+def safe_float(v):
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if s == "":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
 
 
+# SVY21 (EPSG:3414) inverse Transverse Mercator to WGS84 lat/lon (EPSG:4326)
+# Uses parameters explicitly stated in SVY21 specs:
+# - Central Meridian: 103°50'00"E
+# - Latitude of Origin: 1°22'00"N
+# - False Easting: 28001.642 m
+# - False Northing: 38744.572 m
+# - Scale Factor at CM: 1.000
+# - Ellipsoid: WGS84 a=6378137, inv_f=298.257223563
+def svy21_to_wgs84(easting, northing):
+    # WGS84 ellipsoid
+    a = 6378137.0
+    inv_f = 298.257223563
+    f = 1.0 / inv_f
+    b = a * (1.0 - f)
+
+    e2 = (a * a - b * b) / (a * a)
+    ep2 = e2 / (1.0 - e2)
+
+    # SVY21 projection params
+    lat0 = math.radians(1.3666666666666667)      # 1°22'00"N
+    lon0 = math.radians(103.83333333333333)      # 103°50'00"E
+    FE = 28001.642
+    FN = 38744.572
+    k0 = 1.0
+
+    # Remove false origin and scale
+    x = (easting - FE) / k0
+    y = (northing - FN) / k0
+
+    # Meridional arc
+    e4 = e2 * e2
+    e6 = e4 * e2
+
+    def meridional_arc(phi):
+        A0 = 1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256
+        A2 = 3 * e2 / 8 + 3 * e4 / 32 + 45 * e6 / 1024
+        A4 = 15 * e4 / 256 + 45 * e6 / 1024
+        A6 = 35 * e6 / 3072
+        return a * (A0 * phi - A2 * math.sin(2 * phi) + A4 * math.sin(4 * phi) - A6 * math.sin(6 * phi))
+
+    M0 = meridional_arc(lat0)
+    M = M0 + y
+
+    # Footpoint latitude
+    mu = M / (a * (1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256))
+    e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
+
+    J1 = 3 * e1 / 2 - 27 * (e1 ** 3) / 32
+    J2 = 21 * (e1 ** 2) / 16 - 55 * (e1 ** 4) / 32
+    J3 = 151 * (e1 ** 3) / 96
+    J4 = 1097 * (e1 ** 4) / 512
+
+    phi1 = mu + J1 * math.sin(2 * mu) + J2 * math.sin(4 * mu) + J3 * math.sin(6 * mu) + J4 * math.sin(8 * mu)
+
+    sin1 = math.sin(phi1)
