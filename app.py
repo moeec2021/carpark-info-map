@@ -5,9 +5,11 @@ import requests
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, jsonify
 
+
 def env(name, default):
     v = os.getenv(name)
     return default if not v else v
+
 
 APP_TITLE = env("APP_TITLE", "Singapore Carpark Info Map")
 RESOURCE_ID = env("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09")
@@ -18,16 +20,17 @@ CACHE_TTL_SECONDS = int(env("CACHE_TTL_SECONDS", 21600))
 DISPLAY_MAX_ROWS = int(env("DISPLAY_MAX_ROWS", 2000))
 HTTP_TIMEOUT_SECONDS = int(env("HTTP_TIMEOUT_SECONDS", 20))
 
-LAT_COL = "latitude"
-LON_COL = "longitude"
+LAT_CANDIDATES = ["latitude", "lat", "Latitude", "LAT"]
+LON_CANDIDATES = ["longitude", "lon", "lng", "Longitude", "LON"]
 
 app = Flask(__name__)
-
 _cache = {}
 _cache_lock = threading.Lock()
 
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
 
 def fetch_all():
     records = []
@@ -59,6 +62,13 @@ def fetch_all():
 
     return records[:MAX_RECORDS], total
 
+
+def find_coord_columns(columns):
+    lat_col = next((c for c in columns if c in LAT_CANDIDATES), None)
+    lon_col = next((c for c in columns if c in LON_CANDIDATES), None)
+    return lat_col, lon_col
+
+
 def get_data(refresh=False):
     with _cache_lock:
         if not refresh and _cache.get("expires", 0) > time.time():
@@ -66,11 +76,14 @@ def get_data(refresh=False):
 
     records, total = fetch_all()
     columns = [k for k in records[0] if not k.startswith("_")] if records else []
+    lat_col, lon_col = find_coord_columns(columns)
 
     with _cache_lock:
         _cache.update({
             "records": records,
             "columns": columns,
+            "lat_col": lat_col,
+            "lon_col": lon_col,
             "total": total,
             "fetched": now_iso(),
             "expires": time.time() + CACHE_TTL_SECONDS
@@ -78,54 +91,4 @@ def get_data(refresh=False):
 
     return _cache
 
-@app.route("/", methods=["GET"])
-def index():
-    q = (request.args.get("q") or "").lower()
-    refresh = request.args.get("refresh") == "1"
 
-    data = get_data(refresh)
-    rows = data["records"]
-
-    if q:
-        rows = [r for r in rows if any(q in str(v).lower() for v in r.values())]
-
-    rows = rows[:DISPLAY_MAX_ROWS]
-
-    seen = set()
-    points = []
-
-    for r in rows:
-        try:
-            lat = float(r[LAT_COL])
-            lon = float(r[LON_COL])
-            key = (round(lat, 6), round(lon, 6))
-
-            if key not in seen:
-                seen.add(key)
-                points.append(str(lat) + "," + str(lon))
-
-            if len(points) == 20:
-                break
-        except Exception:
-            continue
-
-    map_url = None
-    if len(points) >= 2:
-        map_url = "https://www.google.com/maps/dir/" + "/".join(points)
-
-    return render_template(
-        "index.html",
-        app_title=APP_TITLE,
-        resource_id=RESOURCE_ID,
-        fetched_at=data["fetched"],
-        total_ckan=data["total"],
-        columns=data["columns"],
-        rows=rows,
-        map_url=map_url,
-        map_count=len(points),
-        q=q
-    )
-
-@app.route("/healthz", methods=["GET"])
-def healthz():
-    return jsonify(ok=True)
