@@ -5,19 +5,14 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-  <!-- DataTables CSS -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
-  <!-- JS -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 </head>
 
 <body>
-
 <div class="container">
 
   <h1>{{ app_title }}</h1>
@@ -33,26 +28,20 @@
     <button type="submit">Search</button>
   </form>
 
-  {% if map_center %}
-    <button id="toggleMapBtn">Show OneMap (First {{ map_count }} locations)</button>
+  <p style="color:#777; margin-top:10px;">
+    Rows with computed latitude/longitude on this page: <strong>{{ computed_count }}</strong>
+  </p>
 
-    <div id="mapContainer" style="display:none; margin-top:15px;">
-      <iframe
-        src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14"
-        width="100%"
-        height="480"
-        style="border:0;"
-        loading="lazy">
-      </iframe>
-    </div>
-  {% else %}
-    <p style="color:#777; margin-top:10px;">
-      Map not available (latitude / longitude not detected).
-    </p>
-  {% endif %}
+  <h2>Map (Singapore)</h2>
+  <iframe
+    src="https://www.onemap.gov.sg/main/v2/?lat=1.3521&lng=103.8198&zoom=12"
+    width="100%"
+    height="480"
+    style="border:0; margin-bottom:20px;"
+    loading="lazy">
+  </iframe>
 
   <h2>Carpark Data</h2>
-
   <table id="carparkTable" class="display">
     <thead>
       <tr>
@@ -80,10 +69,6 @@ $(document).ready(function () {
     pageLength: 25,
     scrollX: true,
     searching: false
-  });
-
-  $('#toggleMapBtn').on('click', function () {
-    $('#mapContainer').toggle();
   });
 });
 </script>
