@@ -4,110 +4,81 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
-  />
-
-  <!-- DataTables CSS -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
-  />
-
-  <!-- jQuery -->
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-
-  <!-- DataTables JS -->
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <!-- MapLibre JS -->
+  <!-- MapLibre -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <style>
-    #map {
-      height: 480px;
-      margin-bottom: 20px;
-    }
+    #map { height: 480px; margin-bottom: 16px; border-radius: 12px; overflow: hidden; border: 1px solid #223046; }
   </style>
 </head>
 
 <body>
 <div class="container">
-
   <h1>{{ app_title }}</h1>
 
-  <p>
-    <strong>Last fetched:</strong> {{ fetched_at }} |
-    <strong>Total records:</strong> {{ total_ckan }}
+  <p class="meta">
+    <span><strong>Resource ID:</strong> {{ resource_id }}</span>
+    <span><strong>Last fetched:</strong> {{ fetched_at }}</span>
+    <span><strong>Total records:</strong> {{ total_ckan }}</span>
   </p>
+
+  <form method="get" class="filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter (server-side)">
+    <button type="submit">Search</button>
+    <a class="link" href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
+  </form>
 
   <h2>Map (First 10 Carparks)</h2>
   <div id="map"></div>
 
   <h2>Carpark Data</h2>
-
   <table id="carparkTable" class="display">
     <thead>
       <tr>
-        {% for col in columns %}
-          {% if col not in ['x_coord', 'y_coord', 'longitude', 'latitude'] %}
-            <th>{{ col }}</th>
+        {% for key in column_keys %}
+          {% if key == lon_t_key %}
+            <th>longitude (translated)</th>
+          {% elif key == lat_t_key %}
+            <th>latitude (translated)</th>
+          {% else %}
+            <th>{{ key }}</th>
           {% endif %}
         {% endfor %}
-
-        <!-- Move raw coordinates to the right -->
-        <th>x_coord</th>
-        <th>y_coord</th>
-
-        <!-- Add translated coordinates -->
-        <th>longitude (translated)</th>
-        <th>latitude (translated)</th>
       </tr>
     </thead>
-
     <tbody>
       {% for r in rows %}
         <tr>
-          {% for col in columns %}
-            {% if col not in ['x_coord', 'y_coord', 'longitude', 'latitude'] %}
-              <td>{{ r.get(col, "") }}</td>
-            {% endif %}
+          {% for key in column_keys %}
+            <td>{{ r.get(key, "") }}</td>
           {% endfor %}
-
-          <!-- Raw SVY21 -->
-          <td>{{ r.get('x_coord', '') }}</td>
-          <td>{{ r.get('y_coord', '') }}</td>
-
-          <!-- Translated WGS84 -->
-          <td>{{ r.get('longitude', '') }}</td>
-          <td>{{ r.get('latitude', '') }}</td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
-
 </div>
 
 <script>
 $(document).ready(function () {
-
-  // DataTable: 10 rows by default
-  const table = $('#carparkTable').DataTable({
+  $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
     scrollX: true,
     searching: false
   });
 
-  // Initialise MapLibre with OneMap raster tiles
+  // MapLibre + OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
-    center: [{{ map_center[1] }}, {{ map_center[0] }}],
+    center: [{{ map_center[1] }}, {{ map_center[0] }}], // [lon, lat]
     zoom: 13,
     style: {
       version: 8,
@@ -122,31 +93,22 @@ $(document).ready(function () {
         }
       },
       layers: [
-        {
-          id: 'onemap-base',
-          type: 'raster',
-          source: 'onemap'
-        }
+        { id: 'onemap-base', type: 'raster', source: 'onemap' }
       ]
     }
   });
 
   map.addControl(new maplibregl.NavigationControl());
 
-  // Plot first 10 carparks
-  const bounds = new maplibregl.LngLatBounds();
-  const rows = {{ rows | tojson }};
-
-  rows.slice(0, 10).forEach(r => {
-    if (r.longitude && r.latitude) {
-      new maplibregl.Marker()
-        .setLngLat([r.longitude, r.latitude])
-        .addTo(map);
-      bounds.extend([r.longitude, r.latitude]);
-    }
-  });
-
-  if (rows.length > 0) {
+  const pts = {{ map_points | tojson }};
+  if (pts && pts.length > 0) {
+    const bounds = new maplibregl.LngLatBounds();
+    pts.forEach(p => {
+      const lon = p[0];
+      const lat = p[1];
+      new maplibregl.Marker().setLngLat([lon, lat]).addTo(map);
+      bounds.extend([lon, lat]);
+    });
     map.fitBounds(bounds, { padding: 40 });
   }
 });
