@@ -1,22 +1,25 @@
 services:
   - type: web
-    name: carpark-info
+    name: carpark-info-maplibre
     env: python
     pythonVersion: 3.11.9
-    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     autoDeploy: true
     envVars:
-      - key: APP_TITLE
-        value: Singapore Carpark Info (Table View)
-      - key: CKAN_ACTION_BASE
-        value: https://data.gov.sg/api/action
       - key: RESOURCE_ID
         value: d_23f946fa557947f93a8043bbef41dd09
+      - key: CKAN_ACTION_BASE
+        value: https://data.gov.sg/api/action
+      - key: FETCH_LIMIT
+        value: "5000"
+      - key: MAX_RECORDS
+        value: "20000"
       - key: CACHE_TTL_SECONDS
         value: "21600"
       - key: DISPLAY_MAX_ROWS
-        value: "2000"
-      - key: MAX_RECORDS
         value: "20000"
+      - key: HTTP_TIMEOUT_SECONDS
+        value: "20"
+      - key: APP_TITLE
+        value: Singapore Carpark Info Map (OneMap + MapLibre)
