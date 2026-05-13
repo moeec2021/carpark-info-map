@@ -10,9 +10,12 @@
   <!-- DataTables CSS -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
-  <!-- JS -->
+  <!-- jQuery -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <!-- OneMap JS SDK -->
+  <script src="https://www.onemap.gov.sg/maps/js/onemap.min.js"></script>
 </head>
 
 <body>
@@ -32,14 +35,8 @@
     <button type="submit">Search</button>
   </form>
 
-  <h2>Map (First 10 Carparks)</h2>
-  <iframe
-    src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14"
-    width="100%"
-    height="480"
-    style="border:0; margin-bottom:20px;"
-    loading="lazy">
-  </iframe>
+  <h2>Map – First 10 Carparks</h2>
+  <div id="map" style="height: 480px; margin-bottom: 20px;"></div>
 
   <h2>Carpark Data</h2>
 
@@ -66,12 +63,57 @@
 
 <script>
 $(document).ready(function () {
-  $('#carparkTable').DataTable({
+
+  // DataTable – first 10 by default
+  var table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
     scrollX: true,
     searching: false
   });
+
+  // Initialise OneMap
+  var map = new onemap.maps.Map('map', {
+    center: [1.3521, 103.8198], // Singapore fallback
+    zoom: 12
+  });
+
+  var markers = [];
+  var bounds = new onemap.maps.LatLngBounds();
+
+  // Get column indexes for latitude / longitude
+  var latIdx = -1;
+  var lonIdx = -1;
+
+  table.columns().header().each(function (header, i) {
+    if (header.innerText.toLowerCase() === 'latitude') latIdx = i;
+    if (header.innerText.toLowerCase() === 'longitude') lonIdx = i;
+  });
+
+  if (latIdx !== -1 && lonIdx !== -1) {
+    // Take first 10 rows only
+    table.rows({ page: 'current' }).every(function (rowIdx) {
+      if (markers.length >= 10) return;
+
+      var data = this.data();
+      var lat = parseFloat(data[latIdx]);
+      var lon = parseFloat(data[lonIdx]);
+
+      if (!isNaN(lat) && !isNaN(lon)) {
+        var marker = new onemap.maps.Marker({
+          position: [lat, lon]
+        });
+
+        marker.addTo(map);
+        markers.push(marker);
+        bounds.extend([lat, lon]);
+      }
+    });
+
+    if (markers.length > 0) {
+      map.fitBounds(bounds);
+    }
+  }
 });
 </script>
 
