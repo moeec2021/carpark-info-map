@@ -1,21 +1,62 @@
 body {
-  font-family: Arial, sans-serif;
+  margin: 0;
   background: #0b0f14;
   color: #e5e7eb;
-  margin: 0;
+  font-family: Arial, sans-serif;
 }
 
 .container {
   max-width: 1200px;
   margin: auto;
-  padding: 20px;
+  padding: 18px;
 }
 
-#map {
-  height: 480px;
-  margin-bottom: 20px;
+h1 { margin: 0 0 10px 0; }
+h2 { margin: 18px 0 10px 0; }
+
+.meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #9ca3af;
+  font-size: 13px;
+  margin-bottom: 10px;
 }
 
-table {
-  width: 100%;
+.filter {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 10px;
 }
+
+input[type="text"] {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #223046;
+  background: rgba(0,0,0,0.25);
+  color: #e5e7eb;
+  min-width: 320px;
+}
+
+button {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(96,165,250,0.45);
+  background: rgba(96,165,250,0.18);
+  color: #e5e7eb;
+}
+
+.link {
+  color: #60a5fa;
+  text-decoration: none;
+  font-size: 13px;
+}
+.link:hover { text-decoration: underline; }
+
+/* DataTables dark-ish tweaks */
+.dataTables_wrapper { color: #e5e7eb !important; }
+.dataTables_filter { display: none !important; } /* hide DataTables search to avoid a second search box */
+table.dataTable { background: rgba(0,0,0,0.18); border: 1px solid #223046; }
+table.dataTable thead th { background: rgba(96,165,250,0.12) !important; color: #e5e7eb !important; }
