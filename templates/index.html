@@ -7,22 +7,33 @@
   <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre CSS (MUST be <link>) -->
+  <!-- MapLibre CSS -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
   />
 
+  <!-- DataTables CSS -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
+  />
+
   <!-- jQuery -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
-  <!-- DataTables -->
-  <link rel="stylesheet"
-        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <!-- DataTables JS -->
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <!-- MapLibre JS (MUST be <script>) -->
+  <!-- MapLibre JS -->
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <style>
+    #map {
+      height: 480px;
+      margin-bottom: 20px;
+    }
+  </style>
 </head>
 
 <body>
@@ -35,24 +46,46 @@
     <strong>Total records:</strong> {{ total_ckan }}
   </p>
 
-  <h2>Map – First 10 Carparks</h2>
+  <h2>Map (First 10 Carparks)</h2>
   <div id="map"></div>
 
   <h2>Carpark Data</h2>
+
   <table id="carparkTable" class="display">
     <thead>
       <tr>
         {% for col in columns %}
-          <th>{{ col }}</th>
+          {% if col not in ['x_coord', 'y_coord', 'longitude', 'latitude'] %}
+            <th>{{ col }}</th>
+          {% endif %}
         {% endfor %}
+
+        <!-- Move raw coordinates to the right -->
+        <th>x_coord</th>
+        <th>y_coord</th>
+
+        <!-- Add translated coordinates -->
+        <th>longitude (translated)</th>
+        <th>latitude (translated)</th>
       </tr>
     </thead>
+
     <tbody>
       {% for r in rows %}
         <tr>
           {% for col in columns %}
-            <td>{{ r.get(col) }}</td>
+            {% if col not in ['x_coord', 'y_coord', 'longitude', 'latitude'] %}
+              <td>{{ r.get(col, "") }}</td>
+            {% endif %}
           {% endfor %}
+
+          <!-- Raw SVY21 -->
+          <td>{{ r.get('x_coord', '') }}</td>
+          <td>{{ r.get('y_coord', '') }}</td>
+
+          <!-- Translated WGS84 -->
+          <td>{{ r.get('longitude', '') }}</td>
+          <td>{{ r.get('latitude', '') }}</td>
         </tr>
       {% endfor %}
     </tbody>
@@ -63,14 +96,15 @@
 <script>
 $(document).ready(function () {
 
-  // DataTable: show 10 rows by default
-  $('#carparkTable').DataTable({
+  // DataTable: 10 rows by default
+  const table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
+    scrollX: true,
     searching: false
   });
 
-  // MapLibre + OneMap raster tiles
+  // Initialise MapLibre with OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
     center: [{{ map_center[1] }}, {{ map_center[0] }}],
@@ -101,13 +135,15 @@ $(document).ready(function () {
 
   // Plot first 10 carparks
   const bounds = new maplibregl.LngLatBounds();
-
   const rows = {{ rows | tojson }};
+
   rows.slice(0, 10).forEach(r => {
-    const marker = new maplibregl.Marker()
-      .setLngLat([r.longitude, r.latitude])
-      .addTo(map);
-    bounds.extend([r.longitude, r.latitude]);
+    if (r.longitude && r.latitude) {
+      new maplibregl.Marker()
+        .setLngLat([r.longitude, r.latitude])
+        .addTo(map);
+      bounds.extend([r.longitude, r.latitude]);
+    }
   });
 
   if (rows.length > 0) {
