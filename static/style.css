@@ -1,11 +1,8 @@
-/* -----------------------------
-   Base layout & typography
-------------------------------*/
 body {
   margin: 0;
   background: #0b0f14;
   color: #e5e7eb;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Arial, sans-serif;
 }
 
 .container {
@@ -14,142 +11,16 @@ body {
   padding: 16px;
 }
 
-h1 {
-  margin: 0 0 10px 0;
+#map {
+  height: 480px;      /* REQUIRED */
+  margin-bottom: 14px;
+  border: 1px solid #223046;
+  border-radius: 12px;
 }
 
-h2 {
-  margin: 18px 0 10px 0;
-}
-
-/* -----------------------------
-   Banner & meta
-------------------------------*/
 .banner {
   background: #1f2937;
   padding: 6px 12px;
   border-radius: 8px;
   margin-bottom: 10px;
-  font-size: 13px;
-  color: #cbd5e1;
-}
-
-footer {
-  margin-top: 14px;
-  font-size: 13px;
-  color: #9ca3af;
-}
-
-/* -----------------------------
-   Map (CRITICAL: visible height)
-------------------------------*/
-#map {
-  height: 480px;              /* MUST be set or map will not appear */
-  margin-bottom: 12px;
-  border: 1px solid #223046;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-/* -----------------------------
-   DataTables base styling
-------------------------------*/
-table.dataTable {
-  background: rgba(0,0,0,0.18);
-  border: 1px solid #223046;
-}
-
-table.dataTable thead th {
-  background: rgba(96,165,250,0.12) !important;
-  color: #e5e7eb !important;
-  white-space: nowrap;
-}
-
-table.dataTable tbody td {
-  white-space: nowrap;
-  color: #e5e7eb;
-}
-
-.dataTables_wrapper {
-  color: #e5e7eb !important;
-}
-
-/* Hide DataTables’ built‑in search (we use server/preset filters) */
-.dataTables_filter {
-  display: none !important;
-}
-
-/* -----------------------------
-   Row highlight (map ↔ table sync)
-------------------------------*/
-tr.row-selected td {
-  background: rgba(96,165,250,0.18) !important;
-}
-
-/* -----------------------------
-   Numbered MapLibre markers
-------------------------------*/
-.marker {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: rgba(239, 68, 68, 0.95);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid rgba(255,255,255,0.85);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
-  cursor: pointer;
-}
-
-/* -----------------------------
-   Preset buttons (improvement #11)
-------------------------------*/
-.presets {
-  margin: 10px 0 6px 0;
-}
-
-.presets button {
-  margin-right: 6px;
-  margin-bottom: 4px;
-  padding: 6px 10px;
-  background: #1e40af;
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.presets button:hover {
-  background: #1d4ed8;
-}
-
-/* -----------------------------
-   Diagnostics panel
-------------------------------*/
-.diagnostics {
-  margin: 8px 0 12px 0;
-  border: 1px solid #223046;
-  border-radius: 10px;
-  padding: 8px 12px;
-  background: rgba(0,0,0,0.18);
-  font-size: 13px;
-}
-
-.diagnostics summary {
-  cursor: pointer;
-  color: #93c5fd;
-}
-
-.diagnostics ul {
-  margin: 8px 0 0 16px;
-  padding: 0;
-}
-
-.diagnostics li {
-  margin-bottom: 4px;
 }
