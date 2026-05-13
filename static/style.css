@@ -46,6 +46,11 @@ button {
   border: 1px solid rgba(96,165,250,0.45);
   background: rgba(96,165,250,0.18);
   color: #e5e7eb;
+  cursor: pointer;
+}
+
+button:hover {
+  background: rgba(96,165,250,0.26);
 }
 
 .link {
@@ -55,8 +60,93 @@ button {
 }
 .link:hover { text-decoration: underline; }
 
-/* DataTables dark-ish tweaks */
+.map-note {
+  color: #9ca3af;
+  font-size: 13px;
+  margin-top: -4px;
+}
+
+.toggles {
+  margin: 10px 0 6px 0;
+  padding: 10px 12px;
+  border: 1px solid #223046;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.18);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.toggles-title {
+  color: #9ca3af;
+  font-size: 13px;
+  margin-right: 8px;
+}
+
+.toggles label {
+  font-size: 13px;
+  color: #e5e7eb;
+  user-select: none;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #223046;
+  font-size: 12px;
+  line-height: 18px;
+}
+.pill.ok { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.45); }
+.pill.warn { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.45); }
+
+.footer {
+  margin-top: 18px;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid #223046;
+  background: rgba(0,0,0,0.18);
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.footer .small {
+  margin-top: 6px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+/* DataTables: hide built-in search to avoid duplicate search box */
+.dataTables_filter { display: none !important; }
 .dataTables_wrapper { color: #e5e7eb !important; }
-.dataTables_filter { display: none !important; } /* hide DataTables search to avoid a second search box */
-table.dataTable { background: rgba(0,0,0,0.18); border: 1px solid #223046; }
-table.dataTable thead th { background: rgba(96,165,250,0.12) !important; color: #e5e7eb !important; }
+
+table.dataTable {
+  background: rgba(0,0,0,0.18);
+  border: 1px solid #223046;
+}
+
+table.dataTable thead th {
+  background: rgba(96,165,250,0.12) !important;
+  color: #e5e7eb !important;
+}
+
+tr.row-selected td {
+  background: rgba(96,165,250,0.18) !important;
+}
+
+/* MapLibre custom numbered marker */
+.marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.95);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255,255,255,0.85);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+  cursor: pointer;
+}
