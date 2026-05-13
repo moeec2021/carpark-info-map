@@ -7,9 +7,6 @@ from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-# -----------------------------
-# Environment / defaults
-# -----------------------------
 APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
 RESOURCE_ID = os.getenv("RESOURCE_ID", "d_23f946fa557947f93a8043bbef41dd09")
 CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
@@ -19,7 +16,6 @@ MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
 HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
 
-# Column keys
 X_COL = "x_coord"
 Y_COL = "y_coord"
 LON_T = "longitude_translated"
@@ -35,9 +31,6 @@ _cache = {
     "records": [],
 }
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -58,10 +51,6 @@ def datastore_search_url():
     base = CKAN_ACTION_BASE.rstrip("/")
     return base + "/datastore_search"
 
-# -----------------------------
-# SVY21 (EPSG:3414) → WGS84 (EPSG:4326)
-# Uses SVY21 parameters (CM 103°50', Lat0 1°22', FE 28001.642, FN 38744.572, k0 1.0) on WGS84 ellipsoid.
-# -----------------------------
 def svy21_to_wgs84(easting, northing):
     a = 6378137.0
     inv_f = 298.257223563
@@ -127,9 +116,6 @@ def svy21_to_wgs84(easting, northing):
 
     return math.degrees(lon), math.degrees(lat)
 
-# -----------------------------
-# Data fetch + cache
-# -----------------------------
 def fetch_all_records():
     url = datastore_search_url()
     offset = 0
@@ -167,7 +153,6 @@ def fetch_all_records():
         if offset >= total:
             break
 
-    # column order from CKAN fields
     cols = []
     for f in fields:
         fid = f.get("id")
@@ -215,9 +200,6 @@ def get_data(force_refresh=False):
     _cache["expires_at"] = now + CACHE_TTL_SECONDS
     return _cache
 
-# -----------------------------
-# Routes
-# -----------------------------
 @app.route("/", methods=["GET"])
 def index():
     q = (request.args.get("q") or "").strip().lower()
@@ -241,7 +223,6 @@ def index():
                 filtered.append(r)
         rows = filtered
 
-    # map markers from first 10 with translated coords
     pts = []
     for r in rows[:10]:
         lon = safe_float(r.get(LON_T))
@@ -252,7 +233,7 @@ def index():
     if pts:
         avg_lon = sum(p[0] for p in pts) / len(pts)
         avg_lat = sum(p[1] for p in pts) / len(pts)
-        map_center = [avg_lon, avg_lat]  # [lon, lat]
+        map_center = [avg_lon, avg_lat]
     else:
         map_center = [103.8198, 1.3521]
 
@@ -274,6 +255,3 @@ def index():
 @app.route("/healthz", methods=["GET"])
 def healthz():
     return jsonify(ok=True)
-
-if __name__ == "__main__":
-    app.run()
