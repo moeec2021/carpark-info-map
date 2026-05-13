@@ -8,18 +8,20 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
   <!-- DataTables CSS -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
   <!-- jQuery -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <!-- DataTables JS -->
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <!-- OneMap JS SDK -->
+  <!-- ✅ OneMap JS SDK (CORRECT) -->
   <script src="https://www.onemap.gov.sg/maps/js/onemap.min.js"></script>
 </head>
 
 <body>
-
 <div class="container">
 
   <h1>{{ app_title }}</h1>
@@ -36,10 +38,9 @@
   </form>
 
   <h2>Map – First 10 Carparks</h2>
-  <div id="map" style="height: 480px; margin-bottom: 20px;"></div>
+  <div id="map" style="height:480px; margin-bottom:20px;"></div>
 
   <h2>Carpark Data</h2>
-
   <table id="carparkTable" class="display">
     <thead>
       <tr>
@@ -64,7 +65,7 @@
 <script>
 $(document).ready(function () {
 
-  // DataTable – first 10 by default
+  // ✅ DataTable: 10 rows by default
   var table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
@@ -72,45 +73,45 @@ $(document).ready(function () {
     searching: false
   });
 
-  // Initialise OneMap
+  // ✅ Initialise OneMap
   var map = new onemap.maps.Map('map', {
     center: [1.3521, 103.8198], // Singapore fallback
     zoom: 12
   });
 
-  var markers = [];
   var bounds = new onemap.maps.LatLngBounds();
+  var markerCount = 0;
 
-  // Get column indexes for latitude / longitude
+  // ✅ Find latitude / longitude columns
   var latIdx = -1;
   var lonIdx = -1;
 
   table.columns().header().each(function (header, i) {
-    if (header.innerText.toLowerCase() === 'latitude') latIdx = i;
-    if (header.innerText.toLowerCase() === 'longitude') lonIdx = i;
+    var name = header.innerText.toLowerCase();
+    if (name === 'latitude') latIdx = i;
+    if (name === 'longitude') lonIdx = i;
   });
 
+  // ✅ Plot first 10 carparks
   if (latIdx !== -1 && lonIdx !== -1) {
-    // Take first 10 rows only
-    table.rows({ page: 'current' }).every(function (rowIdx) {
-      if (markers.length >= 10) return;
+    table.rows({ page: 'current' }).every(function () {
+      if (markerCount >= 10) return;
 
-      var data = this.data();
-      var lat = parseFloat(data[latIdx]);
-      var lon = parseFloat(data[lonIdx]);
+      var row = this.data();
+      var lat = parseFloat(row[latIdx]);
+      var lon = parseFloat(row[lonIdx]);
 
       if (!isNaN(lat) && !isNaN(lon)) {
         var marker = new onemap.maps.Marker({
           position: [lat, lon]
         });
-
         marker.addTo(map);
-        markers.push(marker);
         bounds.extend([lat, lon]);
+        markerCount++;
       }
     });
 
-    if (markers.length > 0) {
+    if (markerCount > 0) {
       map.fitBounds(bounds);
     }
   }
