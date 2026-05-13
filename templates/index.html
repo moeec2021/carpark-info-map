@@ -1,27 +1,37 @@
 <!doctype html>
 <html>
 <head>
-  <meta  <!-- ✅ CSS -->  <meta charset="utf-8">
-  <link rel="stylesheet" href="/static/style.css">
+  <meta charset="utf-8">
+  <title>{{ app_title }}</title>
 
-  <!-- ✅ MapLibre (MUST be proper tags) -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
-  >
-  <script
-    src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"
-  ></script>
+  <!-- Local CSS (IMPORTANT: must be a link tag, not plain text) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- ✅ jQuery + DataTables -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
-  >
+  <!-- MapLibre (IMPORTANT: must be proper tags, not plain text URLs) -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script
-    src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"
-  ></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <!-- Minimal inline styling so markers & row highlight work even if style.css is minimal -->
+  <style>
+    #map { height: 480px; width: 100%; border: 1px solid #223046; border-radius: 12px; margin: 12px 0; }
+    .marker {
+      width: 22px; height: 22px; border-radius: 999px;
+      background: rgba(239, 68, 68, 0.95); color: #fff;
+      font-size: 12px; font-weight: 700;
+      display: grid; place-items: center;
+      border: 2px solid rgba(255,255,255,0.85);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+      cursor: pointer;
+    }
+    tr.row-selected td { background: rgba(96,165,250,0.18) !important; }
+    .meta { color:#9ca3af; font-size: 13px; margin-bottom: 10px; display:flex; gap:16px; flex-wrap:wrap; }
+    .banner { background:#1f2937; padding:6px 12px; border-radius:8px; display:inline-block; margin-bottom:10px; color:#cbd5e1; font-size:13px; }
+  </style>
 </head>
 
 <body>
@@ -42,20 +52,25 @@
   <table id="carparkTable" class="display">
     <thead>
       <tr>
+        <th data-colkey="_rownum">#</th>
+        <th data-colkey="_geocoded">Geocoded</th>
         {% for c in column_keys %}
           {% if c == lon_t_key %}
-            <th>Longitude (Translated)</th>
+            <th data-colkey="{{ c }}">Longitude (Translated)</th>
           {% elif c == lat_t_key %}
-            <th>Latitude (Translated)</th>
+            <th data-colkey="{{ c }}">Latitude (Translated)</th>
           {% else %}
-            <th>{{ c.replace('_',' ') | title }}</th>
+            <th data-colkey="{{ c }}">{{ c.replace('_',' ') | title }}</th>
           {% endif %}
         {% endfor %}
       </tr>
     </thead>
+
     <tbody>
       {% for r in rows %}
-        <tr>
+        <tr data-rowid="{{ loop.index0 }}">
+          <td class="col-rownum"></td>
+          <td class="col-geo"></td>
           {% for c in column_keys %}
             <td>{{ r.get(c, "") }}</td>
           {% endfor %}
@@ -69,49 +84,146 @@
 <script>
 $(function () {
 
-  // ✅ DataTable
+  // DataTables initialisation
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
     scrollX: true,
-    searching: false
+    searching: false,
+    deferRender: true
   });
 
-  // ✅ MapLibre + OneMap raster tiles
+  // MapLibre + OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
-    center: {{ map_center | tojson }},
+    center: {{ map_center | tojson }},   // [lon, lat]
     zoom: 12,
     style: {
       version: 8,
       sources: {
         onemap: {
           type: 'raster',
-          tiles: [
-            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
-          ],
+          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
           tileSize: 256,
           attribution: '© Singapore Land Authority'
         }
       },
-      layers: [
-        {
-          id: 'onemap-base',
-          type: 'raster',
-          source: 'onemap'
-        }
-      ]
+      layers: [{ id: 'base', type: 'raster', source: 'onemap' }]
     }
   });
 
   map.addControl(new maplibregl.NavigationControl());
 
-  // ✅ Add markers ONLY after map loads
-  map.on('load', function () {
-    const pts = {{ map_points | tojson }};
-    pts.forEach(p => {
-      new maplibregl.Marker().setLngLat(p).addTo(map);
+  function colIndexByKey(key) {
+    return $('#carparkTable thead th').filter(function () {
+      return $(this).attr('data-colkey') === key;
+    }).index();
+  }
+
+  function highlightRow(rowId) {
+    $('#carparkTable tbody tr').removeClass('row-selected');
+    $('#carparkTable tbody tr[data-rowid=\"' + rowId + '\"]').addClass('row-selected');
+  }
+
+  function panTo(lon, lat) {
+    map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 15) });
+  }
+
+  let markers = [];
+
+  function clearMarkers() {
+    markers.forEach(m => m.remove());
+    markers = [];
+  }
+
+  function buildMarkersForCurrentPage() {
+    clearMarkers();
+
+    const idxLon = colIndexByKey('{{ lon_t_key }}');
+    const idxLat = colIndexByKey('{{ lat_t_key }}');
+
+    const bounds = new maplibregl.LngLatBounds();
+    let count = 0;
+
+    const nodes = table.rows({ page: 'current' }).nodes();
+
+    $(nodes).each(function () {
+      if (count >= 10) return false;
+
+      const $tr = $(this);
+      const rowId = $tr.attr('data-rowid');
+
+      // Set row number 1..10
+      $tr.find('td.col-rownum').text(String(count + 1));
+
+      const cells = $tr.find('td');
+
+      const lonTxt = (idxLon >= 0) ? $(cells[idxLon]).text().trim() : '';
+      const latTxt = (idxLat >= 0) ? $(cells[idxLat]).text().trim() : '';
+
+      const lon = parseFloat(lonTxt);
+      const lat = parseFloat(latTxt);
+
+      if (!isNaN(lon) && !isNaN(lat)) {
+        $tr.find('td.col-geo').text('✅');
+      } else {
+        $tr.find('td.col-geo').text('⚠️');
+        count++;
+        return; // skip marker
+      }
+
+      // Numbered marker
+      const el = document.createElement('div');
+      el.className = 'marker';
+      el.textContent = String(count + 1);
+
+      const mk = new maplibregl.Marker({ element: el })
+        .setLngLat([lon, lat])
+        .addTo(map);
+
+      el.addEventListener('click', function () {
+        highlightRow(rowId);
+        panTo(lon, lat);
+      });
+
+      markers.push(mk);
+      bounds.extend([lon, lat]);
+
+      count++;
     });
+
+    if (markers.length > 0) {
+      map.fitBounds(bounds, { padding: 50, maxZoom: 16 });
+    }
+  }
+
+  // Click row to pan to that point
+  $('#carparkTable tbody').on('click', 'tr', function () {
+    const idxLon = colIndexByKey('{{ lon_t_key }}');
+    const idxLat = colIndexByKey('{{ lat_t_key }}');
+
+    const $tr = $(this);
+    const rowId = $tr.attr('data-rowid');
+    const cells = $tr.find('td');
+
+    const lon = parseFloat($(cells[idxLon]).text().trim());
+    const lat = parseFloat($(cells[idxLat]).text().trim());
+
+    if (!isNaN(lon) && !isNaN(lat)) {
+      highlightRow(rowId);
+      panTo(lon, lat);
+    }
+  });
+
+  // Auto-update markers when paging/sorting redraws the table
+  table.on('draw', function () {
+    $('#carparkTable tbody tr').removeClass('row-selected');
+    buildMarkersForCurrentPage();
+  });
+
+  // Build markers only after the map is loaded (prevents blank map race)
+  map.on('load', function () {
+    buildMarkersForCurrentPage();
   });
 
 });
@@ -119,5 +231,3 @@ $(function () {
 
 </body>
 </html>
-  <title>{{ app_title }}</title>
-
