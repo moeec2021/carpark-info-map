@@ -2,78 +2,79 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>{{ app_title }}</" href="{{ url_for('static', filename='style.css') }}">  <title>{{ app_title }}</title>
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <title>{{ app_title }}</title>
 
+  {{ url_for('static', filename='style.css') }}
+
+  <!-- ✅ REQUIRED: MapLibre (DO NOT ALTER) -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- DataTables -->
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 </head>
 
 <body>
 <div class="container">
 
-<h1>{{ app_title }}</h1>
-<div class="banner">Dataset: {{ resource_id }}</div>
+  <h1>{{ app_title }}</h1>
+  <div class="banner">Dataset: {{ resource_id }}</div>
 
-<details class="diagnostics">
-  <summary>Diagnostics</summary>
-  <ul>
-    <li>Last fetched: {{ fetched_at }}</li>
-    <li>Total records: {{ total_ckan }}</li>
-    <li>Map tiles: OneMap (SLA)</li>
-  </ul>
-</details>
+  <!-- ✅ MAP CONTAINER -->
+  <div id="map"></div>
 
-<h2>Map – first 10 rows on current page</h2>
-<div id="map"></div>
-
-<div class="presets">
-  <button data-filter="free">Free parking</button>
-  <button data-filter="short">Short‑term parking</button>
-  <button data-filter="electronic">Electronic system</button>
-</div>
-
-<table id="carparkTable" class="display">
-  <thead>
-    <tr>
-      <th>#</th>
-      <th>Geocoded</th>
-      {% for c in column_keys %}
-        <th>{{ c }}</th>
+  <!-- ✅ TABLE (unchanged structurally) -->
+  <table id="carparkTable" class="display">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Geocoded</th>
+        {% for c in column_keys %}
+          {% if c == 'longitude_translated' %}
+            <th>Longitude (Translated)</th>
+          {% elif c == 'latitude_translated' %}
+            <th>Latitude (Translated)</th>
+          {% else %}
+            <th>{{ c.replace('_',' ') | title }}</th>
+          {% endif %}
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td></td>
+        <td>{{ "✅" if r.longitude_translated else "⚠️" }}</td>
+        {% for c in column_keys %}
+          <td>{{ r.get(c, "") }}</td>
+        {% endfor %}
+      </tr>
       {% endfor %}
-    </tr>
-  </thead>
-  <tbody>
-    {% for r in rows %}
-    <tr>
-      <td></td>
-      <td></td>
-      {% for c in column_keys %}
-        <td>{{ r.get(c, "") }}</td>
-      {% endfor %}
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+    </tbody>
+  </table>
 
-<footer>
-  Base map: OneMap (SLA). Coordinates converted SVY21 → WGS84 server‑side.
-</footer>
+  <footer>
+    Base map: OneMap (SLA). Coordinates converted SVY21 → WGS84.
+  </footer>
 
 </div>
 
 <script>
 $(function () {
+
+  // ✅ DataTable
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
-    deferRender: true,
     scrollX: true,
-    searching: false
+    searching: false,
+    deferRender: true
   });
 
+  // ✅ MapLibre + OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
     center: [{{ map_center[1] }}, {{ map_center[0] }}],
@@ -83,42 +84,22 @@ $(function () {
       sources: {
         onemap: {
           type: 'raster',
-          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
+          tiles: [
+            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
+          ],
           tileSize: 256
         }
       },
-      layers: [{ id: 'base', type: 'raster', source: 'onemap' }]
+      layers: [
+        { id: 'base', type: 'raster', source: 'onemap' }
+      ]
     }
   });
 
-  let markers = [];
-  function redrawMarkers() {
-    markers.forEach(m => m.remove());
-    markers = [];
+  map.addControl(new maplibregl.NavigationControl());
 
-    let count = 0;
-    table.rows({page:'current'}).nodes().each(function (row) {
-      if (count >= 10) return;
-      const lon = parseFloat($(row).find('td:contains("translated")').prev().text());
-      const lat = parseFloat($(row).find('td:contains("translated")').text());
-      if (!isNaN(lon) && !isNaN(lat)) {
-        const el = document.createElement('div');
-        el.className = 'marker';
-        el.textContent = count+1;
-        markers.push(
-          new maplibregl.Marker(el).setLngLat([lon,lat]).addTo(map)
-        );
-        count++;
-      }
-    });
-  }
-
-  table.on('draw', redrawMarkers);
-  redrawMarkers();
 });
 </script>
 
 </body>
 </html>
-
-
