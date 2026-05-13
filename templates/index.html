@@ -4,16 +4,14 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  {{ url_for('static', filename='style.css') }}
+  <link rel="stylesheet" href="/static/style.css">
 
-  <!-- ✅ MapLibre (REQUIRED) -->
-  <link rel="stylesheet"
-        href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <!-- MapLibre (MUST be proper tags; do not paste as plain text URLs) -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <!-- DataTables -->
-  <link rel="stylesheet"
-        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 </head>
@@ -21,71 +19,94 @@
 <body>
 <div class="container">
 
-<h1>{{ app_title }}</h1>
-<div class="banner">Dataset: {{ resource_id }}</div>
+  <h1>{{ app_title }}</h1>
+  <div class="banner">Dataset: {{ resource_id }}</div>
 
-<div id="map"></div>
+  <div class="meta">
+    <span><strong>Last fetched:</strong> {{ fetched_at }}</span>
+    <span><strong>Total records:</strong> {{ total_ckan }}</span>
+  </div>
 
-<table id="carparkTable" class="display">
-<thead>
-<tr>
-  {% for c in column_keys %}
-    {% if c == 'longitude_translated' %}
-      <th>Longitude (Translated)</th>
-    {% elif c == 'latitude_translated' %}
-      <th>Latitude (Translated)</th>
-    {% else %}
-      <th>{{ c.replace('_',' ') | title }}</th>
-    {% endif %}
-  {% endfor %}
-</tr>
-</thead>
-<tbody>
-{% for r in rows %}
-<tr>
-  {% for c in column_keys %}
-    <td>{{ r.get(c,"") }}</td>
-  {% endfor %}
-</tr>
-{% endfor %}
-</tbody>
-</table>
+  <form method="get" class="filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter (server-side)">
+    <button type="submit">Search</button>
+    <a class="link" href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
+  </form>
+
+  <h2>Map (First 10)</h2>
+  <div id="map"></div>
+
+  <h2>Carpark Data</h2>
+  <table id="carparkTable" class="display">
+    <thead>
+      <tr>
+        {% for c in column_keys %}
+          {% if c == lon_t_key %}
+            <th>Longitude (Translated)</th>
+          {% elif c == lat_t_key %}
+            <th>Latitude (Translated)</th>
+          {% else %}
+            <th>{{ c.replace('_',' ') | title }}</th>
+          {% endif %}
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          {% for c in column_keys %}
+            <td>{{ r.get(c, "") }}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
 </div>
 
 <script>
 $(function () {
+  // DataTable
   $('#carparkTable').DataTable({
     pageLength: 10,
-    scrollX: true
+    lengthMenu: [10, 25, 50, 100],
+    scrollX: true,
+    searching: false,
+    deferRender: true
   });
 
+  // MapLibre + OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
-    center: [{{ map_center[1] }}, {{ map_center[0] }}],
+    center: {{ map_center | tojson }},   // [lon, lat]
     zoom: 12,
     style: {
       version: 8,
       sources: {
         onemap: {
           type: 'raster',
-          tiles: [
-            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
-          ],
-          tileSize: 256
+          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© Singapore Land Authority'
         }
       },
-      layers: [{ id:'base', type:'raster', source:'onemap' }]
+      layers: [{ id: 'base', type: 'raster', source: 'onemap' }]
     }
   });
 
+  map.addControl(new maplibregl.NavigationControl());
+
+  // Add markers ONLY after map load (prevents intermittent blank maps)
   map.on('load', function () {
     const pts = {{ map_points | tojson }};
+    if (!pts || pts.length === 0) return;
+
+    const bounds = new maplibregl.LngLatBounds();
     pts.forEach(p => {
-      new maplibregl.Marker()
-        .setLngLat(p)
-        .addTo(map);
+      new maplibregl.Marker().setLngLat(p).addTo(map);
+      bounds.extend(p);
     });
+    map.fitBounds(bounds, { padding: 40, maxZoom: 16 });
   });
 });
 </script>
