@@ -2,304 +2,123 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>{{ app_title }}</title>
-
-  <!-- App CSS -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-  <!-- DataTables -->
+  <title>{{ app_title }}</" href="{{ url_for('static', filename='style.css') }}">  <title>{{ app_title }}</title>
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <!-- MapLibre -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-
-  <style>
-    #map {
-      height: 480px;
-      margin: 12px 0 16px 0;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid #223046;
-    }
-  </style>
 </head>
 
 <body>
 <div class="container">
-  <h1>{{ app_title }}</h1>
 
-  <div class="meta">
-    <span><strong>Resource ID:</strong> {{ resource_id }}</span>
-    <span><strong>Last fetched:</strong> {{ fetched_at }}</span>
-    <span><strong>Total records:</strong> {{ total_ckan }}</span>
-  </div>
+<h1>{{ app_title }}</h1>
+<div class="banner">Dataset: {{ resource_id }}</div>
 
-  <form method="get" class="filter">
-    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter (server-side)">
-    <button type="submit">Search</button>
-    <a class="link" href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
-  </form>
+<details class="diagnostics">
+  <summary>Diagnostics</summary>
+  <ul>
+    <li>Last fetched: {{ fetched_at }}</li>
+    <li>Total records: {{ total_ckan }}</li>
+    <li>Map tiles: OneMap (SLA)</li>
+  </ul>
+</details>
 
-  <!-- Improvements #4: Column visibility toggles -->
-  <div class="toggles">
-    <div class="toggles-title">Column toggles:</div>
-    <label><input type="checkbox" id="toggle-x" checked> x_coord</label>
-    <label><input type="checkbox" id="toggle-y" checked> y_coord</label>
-    <label><input type="checkbox" id="toggle-lon" checked> longitude (translated)</label>
-    <label><input type="checkbox" id="toggle-lat" checked> latitude (translated)</label>
-  </div>
+<h2>Map – first 10 rows on current page</h2>
+<div id="map"></div>
 
-  <h2>Map – First 10 rows on current page</h2>
-  <div class="map-note">
-    Markers are numbered to match the “#” column in the table. Click a marker to highlight the row, or click a row to pan the map.
-  </div>
-  <div id="map"></div>
+<div class="presets">
+  <button data-filter="free">Free parking</button>
+  <button data-filter="short">Short‑term parking</button>
+  <button data-filter="electronic">Electronic system</button>
+</div>
 
-  <h2>Carpark Data</h2>
-
-  <table id="carparkTable" class="display">
-    <thead>
-      <tr>
-        <!-- Improvement #1: Row-number column -->
-        <th>#</th>
-
-        <!-- Improvement #5: Coordinate validation indicator -->
-        <th>Geocoded</th>
-
-        {% for key in column_keys %}
-          {% if key == lon_t_key %}
-            <th>longitude (translated)</th>
-          {% elif key == lat_t_key %}
-            <th>latitude (translated)</th>
-          {% else %}
-            <th>{{ key }}</th>
-          {% endif %}
-        {% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-        <tr data-rowid="{{ loop.index0 }}">
-          <td class="col-rownum"></td>
-          <td class="col-geo"></td>
-
-          {% for key in column_keys %}
-            <td>{{ r.get(key, "") }}</td>
-          {% endfor %}
-        </tr>
+<table id="carparkTable" class="display">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Geocoded</th>
+      {% for c in column_keys %}
+        <th>{{ c }}</th>
       {% endfor %}
-    </tbody>
-  </table>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td></td>
+      <td></td>
+      {% for c in column_keys %}
+        <td>{{ r.get(c, "") }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
-  <!-- Improvement #6: explicit source / methodology footer -->
-  <div class="footer">
-    <div><strong>Base map:</strong> OneMap raster tiles (Singapore Land Authority) rendered via MapLibre GL.</div>
-    <div><strong>Coordinate method:</strong> WGS84 longitude/latitude computed from SVY21 x/y coordinates (Transverse Mercator parameters) server-side.</div>
-    <div class="small">If x_coord/y_coord are missing for a row, “Geocoded” will show a warning icon and the row won’t be placed on the map.</div>
-  </div>
+<footer>
+  Base map: OneMap (SLA). Coordinates converted SVY21 → WGS84 server‑side.
+</footer>
+
 </div>
 
 <script>
-$(document).ready(function () {
-
-  // --- DataTables setup ---
+$(function () {
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
-    lengthMenu: [10, 25, 50, 100],
+    deferRender: true,
     scrollX: true,
     searching: false
   });
 
-  // --- MapLibre + OneMap raster tiles (stable; no external style JSON) ---
   const map = new maplibregl.Map({
     container: 'map',
-    center: [{{ map_center[1] }}, {{ map_center[0] }}], // [lon, lat]
+    center: [{{ map_center[1] }}, {{ map_center[0] }}],
     zoom: 13,
     style: {
       version: 8,
       sources: {
         onemap: {
           type: 'raster',
-          tiles: [
-            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
-          ],
-          tileSize: 256,
-          attribution: '© Singapore Land Authority'
+          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
+          tileSize: 256
         }
       },
-      layers: [
-        { id: 'onemap-base', type: 'raster', source: 'onemap' }
-      ]
+      layers: [{ id: 'base', type: 'raster', source: 'onemap' }]
     }
   });
 
-  map.addControl(new maplibregl.NavigationControl());
+  let markers = [];
+  function redrawMarkers() {
+    markers.forEach(m => m.remove());
+    markers = [];
 
-  // --- Column index helpers (by header text) ---
-  function colIndexByHeaderText(text) {
-    const headers = $('#carparkTable thead th');
-    const t = text.toLowerCase();
-    for (let i = 0; i < headers.length; i++) {
-      const h = $(headers[i]).text().trim().toLowerCase();
-      if (h === t) return i;
-    }
-    return -1;
-  }
-
-  // Our special columns:
-  const idxRowNum = 0;
-  const idxGeo = 1;
-  let idxLon = colIndexByHeaderText('longitude (translated)');
-  let idxLat = colIndexByHeaderText('latitude (translated)');
-
-  // --- Improvement #4: column visibility toggles ---
-  function applyColumnToggle(checkboxId, headerName) {
-    const idx = colIndexByHeaderText(headerName);
-    if (idx === -1) return;
-    const show = $(checkboxId).is(':checked');
-    table.column(idx).visible(show);
-  }
-
-  $('#toggle-x').on('change', function () {
-    applyColumnToggle('#toggle-x', 'x_coord');
-  });
-  $('#toggle-y').on('change', function () {
-    applyColumnToggle('#toggle-y', 'y_coord');
-  });
-  $('#toggle-lon').on('change', function () {
-    applyColumnToggle('#toggle-lon', 'longitude (translated)');
-  });
-  $('#toggle-lat').on('change', function () {
-    applyColumnToggle('#toggle-lat', 'latitude (translated)');
-  });
-
-  // Apply once on load
-  applyColumnToggle('#toggle-x', 'x_coord');
-  applyColumnToggle('#toggle-y', 'y_coord');
-  applyColumnToggle('#toggle-lon', 'longitude (translated)');
-  applyColumnToggle('#toggle-lat', 'latitude (translated)');
-
-  // --- Marker management (Improvements #1, #2, #3) ---
-  let markerObjs = []; // { marker, rowId }
-
-  function clearMarkers() {
-    markerObjs.forEach(m => m.marker.remove());
-    markerObjs = [];
-  }
-
-  function highlightRowByRowId(rowId) {
-    $('#carparkTable tbody tr').removeClass('row-selected');
-    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]').addClass('row-selected');
-  }
-
-  function panTo(lon, lat) {
-    map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 15) });
-  }
-
-  function buildMarkersFromCurrentPage() {
-    clearMarkers();
-
-    idxLon = colIndexByHeaderText('longitude (translated)');
-    idxLat = colIndexByHeaderText('latitude (translated)');
-
-    const bounds = new maplibregl.LngLatBounds();
     let count = 0;
-
-    // visible rows on current page
-    const nodes = table.rows({ page: 'current' }).nodes();
-
-    $(nodes).each(function () {
-      if (count >= 10) return false; // first 10 entries of current page
-
-      const $tr = $(this);
-      const rowId = $tr.attr('data-rowid');
-
-      // Improvement #1: set row number (1..)
-      $tr.find('td.col-rownum').text(String(count + 1));
-
-      // Read lon/lat from displayed cells by column index
-      const cells = $tr.find('td');
-
-      const lonTxt = (idxLon >= 0 && idxLon < cells.length) ? $(cells[idxLon]).text().trim() : '';
-      const latTxt = (idxLat >= 0 && idxLat < cells.length) ? $(cells[idxLat]).text().trim() : '';
-
-      const lon = parseFloat(lonTxt);
-      const lat = parseFloat(latTxt);
-
-      // Improvement #5: coordinate validation indicator
-      const $geoCell = $tr.find('td.col-geo');
+    table.rows({page:'current'}).nodes().each(function (row) {
+      if (count >= 10) return;
+      const lon = parseFloat($(row).find('td:contains("translated")').prev().text());
+      const lat = parseFloat($(row).find('td:contains("translated")').text());
       if (!isNaN(lon) && !isNaN(lat)) {
-        $geoCell.html('<span class="pill ok">✅</span>');
-      } else {
-        $geoCell.html('<span class="pill warn">⚠️</span>');
+        const el = document.createElement('div');
+        el.className = 'marker';
+        el.textContent = count+1;
+        markers.push(
+          new maplibregl.Marker(el).setLngLat([lon,lat]).addTo(map)
+        );
         count++;
-        return; // skip marker creation
       }
-
-      // Improvement #1: numbered marker (custom HTML marker)
-      const el = document.createElement('div');
-      el.className = 'marker';
-      el.textContent = String(count + 1);
-
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([lon, lat])
-        .addTo(map);
-
-      // Improvement #2: click marker highlights row, and pan map
-      el.addEventListener('click', () => {
-        highlightRowByRowId(rowId);
-        panTo(lon, lat);
-      });
-
-      markerObjs.push({ marker, rowId });
-      bounds.extend([lon, lat]);
-      count++;
     });
-
-    // Fit bounds if at least one marker
-    if (markerObjs.length > 0) {
-      map.fitBounds(bounds, { padding: 50, maxZoom: 16 });
-    }
   }
 
-  // Improvement #3: auto-update markers on paging/draw
-  table.on('draw', function () {
-    // reset row selection on redraw
-    $('#carparkTable tbody tr').removeClass('row-selected');
-    buildMarkersFromCurrentPage();
-  });
-
-  // Improvement #2: click row -> pan map (if it has valid coords)
-  $('#carparkTable tbody').on('click', 'tr', function () {
-    const $tr = $(this);
-    const cells = $tr.find('td');
-
-    idxLon = colIndexByHeaderText('longitude (translated)');
-    idxLat = colIndexByHeaderText('latitude (translated)');
-
-    const lonTxt = (idxLon >= 0 && idxLon < cells.length) ? $(cells[idxLon]).text().trim() : '';
-    const latTxt = (idxLat >= 0 && idxLat < cells.length) ? $(cells[idxLat]).text().trim() : '';
-
-    const lon = parseFloat(lonTxt);
-    const lat = parseFloat(latTxt);
-    const rowId = $tr.attr('data-rowid');
-
-    if (!isNaN(lon) && !isNaN(lat)) {
-      highlightRowByRowId(rowId);
-      panTo(lon, lat);
-    }
-  });
-
-  // Initial build after map is ready
-  map.on('load', function () {
-    buildMarkersFromCurrentPage();
-  });
-
+  table.on('draw', redrawMarkers);
+  redrawMarkers();
 });
 </script>
 
 </body>
 </html>
+
+
