@@ -65,7 +65,7 @@
 <script>
 $(document).ready(function () {
 
-  // ✅ DataTable: 10 rows by default
+  // DataTable: first 10 rows by default
   var table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
@@ -73,7 +73,7 @@ $(document).ready(function () {
     searching: false
   });
 
-  // ✅ Initialise OneMap
+  // Initialise OneMap
   var map = new onemap.maps.Map('map', {
     center: [1.3521, 103.8198], // Singapore fallback
     zoom: 12
@@ -82,7 +82,7 @@ $(document).ready(function () {
   var bounds = new onemap.maps.LatLngBounds();
   var markerCount = 0;
 
-  // ✅ Find latitude / longitude columns
+  // Find latitude / longitude columns
   var latIdx = -1;
   var lonIdx = -1;
 
@@ -92,7 +92,7 @@ $(document).ready(function () {
     if (name === 'longitude') lonIdx = i;
   });
 
-  // ✅ Plot first 10 carparks
+  // Plot first 10 carparks
   if (latIdx !== -1 && lonIdx !== -1) {
     table.rows({ page: 'current' }).every(function () {
       if (markerCount >= 10) return;
