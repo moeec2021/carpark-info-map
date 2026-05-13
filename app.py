@@ -231,13 +231,24 @@ def index():
     if q:
         rows = [r for r in rows if any(q in str(v).lower() for v in r.values())]
 
-    rows = rows[:DISPLAY_MAX_ROWS]
+    # DataTables will control pagination, but we compute map from first 10 rows
+    rows_for_map = rows[:10]
 
-    # Useful info for UI (how many rows have computed lat/lon)
-    computed_count = 0
-    for r in rows:
-        if str(r.get(LAT_OUT, "")).strip() != "" and str(r.get(LON_OUT, "")).strip() != "":
-            computed_count += 1
+    latlons = []
+    for r in rows_for_map:
+        lat = safe_float(r.get(LAT_OUT))
+        lon = safe_float(r.get(LON_OUT))
+        if lat is not None and lon is not None:
+            latlons.append((lat, lon))
+
+    # Compute map centre from first 10 entries if possible
+    if latlons:
+        avg_lat = sum(p[0] for p in latlons) / len(latlons)
+        avg_lon = sum(p[1] for p in latlons) / len(latlons)
+        map_center = (avg_lat, avg_lon)
+    else:
+        # Fallback: centre of Singapore
+        map_center = (1.3521, 103.8198)
 
     return render_template(
         "index.html",
@@ -248,8 +259,9 @@ def index():
         columns=data["columns"],
         rows=rows,
         q=q,
-        computed_count=computed_count
+        map_center=map_center
     )
+
 
 
 @app.route("/healthz", methods=["GET"])
