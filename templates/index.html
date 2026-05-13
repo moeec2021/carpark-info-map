@@ -6,7 +6,7 @@
 
   {{ url_for('static', filename='style.css') }}
 
-  <!-- ✅ REQUIRED: MapLibre (DO NOT ALTER) -->
+  <!-- ✅ MapLibre (REQUIRED) -->
   <link rel="stylesheet"
         href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
@@ -21,64 +21,49 @@
 <body>
 <div class="container">
 
-  <h1>{{ app_title }}</h1>
-  <div class="banner">Dataset: {{ resource_id }}</div>
+<h1>{{ app_title }}</h1>
+<div class="banner">Dataset: {{ resource_id }}</div>
 
-  <!-- ✅ MAP CONTAINER -->
-  <div id="map"></div>
+<div id="map"></div>
 
-  <!-- ✅ TABLE (unchanged structurally) -->
-  <table id="carparkTable" class="display">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Geocoded</th>
-        {% for c in column_keys %}
-          {% if c == 'longitude_translated' %}
-            <th>Longitude (Translated)</th>
-          {% elif c == 'latitude_translated' %}
-            <th>Latitude (Translated)</th>
-          {% else %}
-            <th>{{ c.replace('_',' ') | title }}</th>
-          {% endif %}
-        {% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td></td>
-        <td>{{ "✅" if r.longitude_translated else "⚠️" }}</td>
-        {% for c in column_keys %}
-          <td>{{ r.get(c, "") }}</td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <footer>
-    Base map: OneMap (SLA). Coordinates converted SVY21 → WGS84.
-  </footer>
+<table id="carparkTable" class="display">
+<thead>
+<tr>
+  {% for c in column_keys %}
+    {% if c == 'longitude_translated' %}
+      <th>Longitude (Translated)</th>
+    {% elif c == 'latitude_translated' %}
+      <th>Latitude (Translated)</th>
+    {% else %}
+      <th>{{ c.replace('_',' ') | title }}</th>
+    {% endif %}
+  {% endfor %}
+</tr>
+</thead>
+<tbody>
+{% for r in rows %}
+<tr>
+  {% for c in column_keys %}
+    <td>{{ r.get(c,"") }}</td>
+  {% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
 
 </div>
 
 <script>
 $(function () {
-
-  // ✅ DataTable
-  const table = $('#carparkTable').DataTable({
+  $('#carparkTable').DataTable({
     pageLength: 10,
-    scrollX: true,
-    searching: false,
-    deferRender: true
+    scrollX: true
   });
 
-  // ✅ MapLibre + OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
     center: [{{ map_center[1] }}, {{ map_center[0] }}],
-    zoom: 13,
+    zoom: 12,
     style: {
       version: 8,
       sources: {
@@ -90,14 +75,18 @@ $(function () {
           tileSize: 256
         }
       },
-      layers: [
-        { id: 'base', type: 'raster', source: 'onemap' }
-      ]
+      layers: [{ id:'base', type:'raster', source:'onemap' }]
     }
   });
 
-  map.addControl(new maplibregl.NavigationControl());
-
+  map.on('load', function () {
+    const pts = {{ map_points | tojson }};
+    pts.forEach(p => {
+      new maplibregl.Marker()
+        .setLngLat(p)
+        .addTo(map);
+    });
+  });
 });
 </script>
 
