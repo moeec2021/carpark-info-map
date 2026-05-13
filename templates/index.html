@@ -4,12 +4,26 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
+  <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet"
-        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+
+  <!-- MapLibre -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- jQuery + DataTables -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <style>
+    #map {
+      height: 480px;
+      margin-bottom: 20px;
+    }
+  </style>
 </head>
 
 <body>
@@ -28,24 +42,16 @@
     <button type="submit">Search</button>
   </form>
 
-  <h2>Map (First 10 Carparks)</h2>
-  <iframe
-    src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14"
-    width="100%"
-    height="480"
-    style="border:0; margin-bottom:20px;"
-    loading="lazy">
-  </iframe>
+  <h2>Map – First 10 Carparks</h2>
+  <div id="map"></div>
 
-  <h2>Carpark Data (First 10 Linked)</h2>
-
+  <h2>Carpark Data</h2>
   <table id="carparkTable" class="display">
     <thead>
       <tr>
         {% for col in columns %}
           <th>{{ col }}</th>
         {% endfor %}
-        <th>OneMap</th>
       </tr>
     </thead>
     <tbody>
@@ -54,14 +60,6 @@
           {% for col in columns %}
             <td>{{ r.get(col, "") }}</td>
           {% endfor %}
-          <td>
-            {% if r.get('latitude') and r.get('longitude') %}
-              <a target="_blank"
-                 href="https://www.onemap.gov.sg/main/v2/?lat={{ r.get('latitude') }}&lng={{ r.get('longitude') }}&zoom=17">
-                View
-              </a>
-            {% endif %}
-          </td>
         </tr>
       {% endfor %}
     </tbody>
@@ -71,11 +69,71 @@
 
 <script>
 $(document).ready(function () {
-  $('#carparkTable').DataTable({
+
+  // DataTable (first 10 rows)
+  const table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
     scrollX: true,
     searching: false
+  });
+
+  // MapLibre + OneMap
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://www.onemap.gov.sg/maps/json/style/grey.json',
+    center: [103.8198, 1.3521], // Singapore fallback
+    zoom: 11
+  });
+
+  map.addControl(new maplibregl.NavigationControl());
+
+  map.on('load', () => {
+    const features = [];
+    let latIdx = -1, lonIdx = -1;
+
+    table.columns().header().each(function (h, i) {
+      const n = h.innerText.toLowerCase();
+      if (n === 'latitude') latIdx = i;
+      if (n === 'longitude') lonIdx = i;
+    });
+
+    if (latIdx === -1 || lonIdx === -1) return;
+
+    table.rows({ page: 'current' }).every(function () {
+      if (features.length >= 10) return;
+      const d = this.data();
+      const lat = parseFloat(d[latIdx]);
+      const lon = parseFloat(d[lonIdx]);
+      if (!isNaN(lat) && !isNaN(lon)) {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lon, lat] }
+        });
+      }
+    });
+
+    if (features.length === 0) return;
+
+    map.addSource('carparks', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features }
+    });
+
+    map.addLayer({
+      id: 'carpark-points',
+      type: 'circle',
+      source: 'carparks',
+      paint: {
+        'circle-radius': 6,
+        'circle-color': '#d32f2f'
+      }
+    });
+
+    // Fit map to markers
+    const bounds = new maplibregl.LngLatBounds();
+    features.forEach(f => bounds.extend(f.geometry.coordinates));
+    map.fitBounds(bounds, { padding: 40 });
   });
 });
 </script>
