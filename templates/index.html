@@ -2,83 +2,51 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>{{ app_title }}</title>
+  <title>MapLibre + OneMap (Working)</title>
 
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet"
-        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <!-- MapLibre CSS -->
+  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css
 
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <!-- MapLibre JS -->
+  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.jsscript>
+
+  <style>
+    body { margin: 0; }
+    #map { height: 100vh; }
+  </style>
 </head>
 
 <body>
-<div class="container">
-
-  <h1>{{ app_title }}</h1>
-
-  <p><strong>Resource ID:</strong> {{ resource_id }}</p>
-  <p>
-    <strong>Last fetched:</strong> {{ fetched_at }} |
-    <strong>Total records:</strong> {{ total_ckan }}
-  </p>
-
-  <form method="get">
-    <input type="text" name="q" value="{{ q }}" placeholder="Contains filter">
-    <button type="submit">Search</button>
-  </form>
-
-  <h2>Map – First 10 Carparks</h2>
-  <iframe
-    src="https://www.onemap.gov.sg/main/v2/?lat={{ map_center[0] }}&lng={{ map_center[1] }}&zoom=14"
-    width="100%"
-    height="480"
-    style="border:0; margin-bottom:20px;"
-    loading="lazy">
-  </iframe>
-
-  <h2>Carpark Data</h2>
-
-  <table id="carparkTable" class="display">
-    <thead>
-      <tr>
-        {% for col in columns %}
-          <th>{{ col }}</th>
-        {% endfor %}
-        <th>OneMap</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-        <tr>
-          {% for col in columns %}
-            <td>{{ r.get(col, "") }}</td>
-          {% endfor %}
-          <td>
-            {% if r.get('latitude') and r.get('longitude') %}
-              <a target="_blank"
-                 href="https://www.onemap.gov.sg/main/v2/?lat={{ r.get('latitude') }}&lng={{ r.get('longitude') }}&zoom=17">
-                View
-              </a>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-</div>
+<div id="map"></div>
 
 <script>
-$(document).ready(function () {
-  $('#carparkTable').DataTable({
-    pageLength: 10,
-    lengthMenu: [10, 25, 50, 100],
-    scrollX: true,
-    searching: false
+  const map = new maplibregl.Map({
+    container: 'map',
+    center: [103.8198, 1.3521], // Singapore
+    zoom: 12,
+    style: {
+      version: 8,
+      sources: {
+        onemap: {
+          type: 'raster',
+          tiles: [
+            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
+          ],
+          tileSize: 256,
+          attribution: '© Singapore Land Authority'
+        }
+      },
+      layers: [
+        {
+          id: 'onemap-base',
+          type: 'raster',
+          source: 'onemap'
+        }
+      ]
+    }
   });
-});
-</script>
 
+  map.addControl(new maplibregl.NavigationControl());
+</script>
 </body>
 </html>
