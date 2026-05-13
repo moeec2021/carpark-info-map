@@ -2,28 +2,79 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>MapLibre + OneMap (Working)</title>
+  <title>{{ app_title }}</title>
 
-  <!-- MapLibre CSS -->
-  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css
+  <!-- App CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre JS -->
-  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.jsscript>
+  <!-- MapLibre CSS (MUST be <link>) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
+  />
 
-  <style>
-    body { margin: 0; }
-    #map { height: 100vh; }
-  </style>
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <!-- DataTables -->
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <!-- MapLibre JS (MUST be <script>) -->
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 </head>
 
 <body>
-<div id="map"></div>
+<div class="container">
+
+  <h1>{{ app_title }}</h1>
+
+  <p>
+    <strong>Last fetched:</strong> {{ fetched_at }} |
+    <strong>Total records:</strong> {{ total_ckan }}
+  </p>
+
+  <h2>Map – First 10 Carparks</h2>
+  <div id="map"></div>
+
+  <h2>Carpark Data</h2>
+  <table id="carparkTable" class="display">
+    <thead>
+      <tr>
+        {% for col in columns %}
+          <th>{{ col }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          {% for col in columns %}
+            <td>{{ r.get(col) }}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</div>
 
 <script>
+$(document).ready(function () {
+
+  // DataTable: show 10 rows by default
+  $('#carparkTable').DataTable({
+    pageLength: 10,
+    lengthMenu: [10, 25, 50, 100],
+    searching: false
+  });
+
+  // MapLibre + OneMap raster tiles
   const map = new maplibregl.Map({
     container: 'map',
-    center: [103.8198, 1.3521], // Singapore
-    zoom: 12,
+    center: [{{ map_center[1] }}, {{ map_center[0] }}],
+    zoom: 13,
     style: {
       version: 8,
       sources: {
@@ -47,6 +98,23 @@
   });
 
   map.addControl(new maplibregl.NavigationControl());
+
+  // Plot first 10 carparks
+  const bounds = new maplibregl.LngLatBounds();
+
+  const rows = {{ rows | tojson }};
+  rows.slice(0, 10).forEach(r => {
+    const marker = new maplibregl.Marker()
+      .setLngLat([r.longitude, r.latitude])
+      .addTo(map);
+    bounds.extend([r.longitude, r.latitude]);
+  });
+
+  if (rows.length > 0) {
+    map.fitBounds(bounds, { padding: 40 });
+  }
+});
 </script>
+
 </body>
 </html>
