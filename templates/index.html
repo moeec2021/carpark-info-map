@@ -17,7 +17,7 @@
   <!-- DataTables JS -->
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <!-- ✅ OneMap JS SDK (CORRECT) -->
+  <!-- ✅ OneMap JS SDK (THIS IS CRITICAL) -->
   <script src="https://www.onemap.gov.sg/maps/js/onemap.min.js"></script>
 </head>
 
@@ -65,7 +65,7 @@
 <script>
 $(document).ready(function () {
 
-  // DataTable: first 10 rows by default
+  // Table: first 10 rows by default
   var table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
@@ -73,14 +73,14 @@ $(document).ready(function () {
     searching: false
   });
 
-  // Initialise OneMap
+  // ✅ Create OneMap
   var map = new onemap.maps.Map('map', {
     center: [1.3521, 103.8198], // Singapore fallback
     zoom: 12
   });
 
   var bounds = new onemap.maps.LatLngBounds();
-  var markerCount = 0;
+  var count = 0;
 
   // Find latitude / longitude columns
   var latIdx = -1;
@@ -92,10 +92,10 @@ $(document).ready(function () {
     if (name === 'longitude') lonIdx = i;
   });
 
-  // Plot first 10 carparks
+  // Plot first 10 rows
   if (latIdx !== -1 && lonIdx !== -1) {
     table.rows({ page: 'current' }).every(function () {
-      if (markerCount >= 10) return;
+      if (count >= 10) return;
 
       var row = this.data();
       var lat = parseFloat(row[latIdx]);
@@ -107,11 +107,11 @@ $(document).ready(function () {
         });
         marker.addTo(map);
         bounds.extend([lat, lon]);
-        markerCount++;
+        count++;
       }
     });
 
-    if (markerCount > 0) {
+    if (count > 0) {
       map.fitBounds(bounds);
     }
   }
