@@ -6,12 +6,18 @@
 
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre -->
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <!-- ✅ MapLibre – CORRECTLY LOADED -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
+  />
+  <script
+    src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"
+  ></script>
 
   <!-- DataTables + jQuery -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
@@ -22,30 +28,30 @@
       border: 1px solid #223046;
       border-radius: 12px;
       margin: 12px 0;
-      overflow: hidden;
     }
 
+    /* Base marker */
     .marker {
       width: 22px;
       height: 22px;
       border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
       display: grid;
       place-items: center;
-      border: 2px solid rgba(255,255,255,0.9); /* default outer ring */
+      font-size: 12px;
+      font-weight: 700;
+      color: #ffffff;
+      border: 2px solid rgba(255,255,255,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-      cursor: pointer;
       user-select: none;
-      color: #ffffff; /* default number colour */
-      background: rgba(239,68,68,0.95); /* default red fill */
+      cursor: pointer;
+      background: rgba(239,68,68,0.95); /* default red */
     }
 
-    /* Night parking fill colours */
+    /* Night parking fill */
     .marker.blue { background: rgba(59,130,246,0.95) !important; }
     .marker.red  { background: rgba(239,68,68,0.95) !important; }
 
-    /* ★ JTC outer ring + number colour (pink), fill untouched */
+    /* ✅ JTC styling — PINK ring + PINK number ONLY */
     .marker.jtc {
       border-color: #ec4899 !important; /* pink ring */
       color: #f472b6 !important;        /* pink number */
@@ -58,7 +64,6 @@
     .legend {
       color: #9ca3af;
       font-size: 13px;
-      margin-top: -6px;
       margin-bottom: 6px;
     }
   </style>
@@ -77,22 +82,28 @@
 
   <div class="searchbar">
     <label><strong>Search:</strong></label>
-    <input id="dtSearch" type="text" placeholder="Search within table (client-side)">
+    <input id="dtSearch" type="text" placeholder="Search within table">
     <button id="clearSearch" type="button">Clear</button>
   </div>
 
   <div class="toggles">
     <span class="toggles-title">Column toggles:</span>
-    <label><input type="checkbox" class="coltoggle" data-colkey="x_coord" checked> X Coord</label>
-    <label><input type="checkbox" class="coltoggle" data-colkey="y_coord" checked> Y Coord</label>
-    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lon_t_key }}" checked> Longitude (Translated)</label>
-    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lat_t_key }}" checked> Latitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="x_coord" checked> X Coord</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="y_coord" checked> Y Coord</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="{{ lon_t_key }}" checked>
+      Longitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="{{ lat_t_key }}" checked>
+      Latitude (Translated)</label>
   </div>
 
   <h2>Map – All rows on current page</h2>
   <div class="legend">
-    Fill: 🔵 Night parking | 🔴 No night parking &nbsp; • &nbsp;
-    Ring & number: 🩷 JTC | ⚪ HDB
+    Fill: 🔵 Night parking | 🔴 No night parking &nbsp;•&nbsp;
+    Ring & Number: 🩷 JTC | ⚪ HDB
   </div>
   <div id="map"></div>
 
@@ -128,7 +139,12 @@
 </div>
 
 <script>
-$(function () {
+$(function(){
+
+  if (typeof maplibregl === 'undefined') {
+    console.error('MapLibre failed to load — markers will not render.');
+    return;
+  }
 
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
@@ -149,7 +165,8 @@ $(function () {
   });
 
   $('.coltoggle').on('change', function(){
-    table.column(colKeyToIndex[$(this).data('colkey')]).visible(this.checked);
+    table.column(colKeyToIndex[$(this).data('colkey')])
+         .visible(this.checked);
   });
 
   const map = new maplibregl.Map({
@@ -161,7 +178,9 @@ $(function () {
       sources: {
         onemap: {
           type: 'raster',
-          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
+          tiles: [
+            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
+          ],
           tileSize: 256
         }
       },
@@ -169,12 +188,15 @@ $(function () {
     }
   });
 
-  function normalize(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function normalize(s){
+    return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  }
 
-  function findIndex(pred){
+  function findIndex(match){
     let idx = -1;
     $('#carparkTable thead th').each(function(i){
-      if (pred(normalize($(this).attr('data-colkey') || $(this).text()))) idx = i;
+      const k = normalize($(this).attr('data-colkey') || $(this).text());
+      if (match(k)) idx = i;
     });
     return idx;
   }
@@ -184,15 +206,18 @@ $(function () {
 
   function isNight(v){
     v = normalize(v);
-    return ['yes','y','true','t','1'].includes(v) || v.includes('night') || v.includes('available');
+    return ['yes','y','true','t','1'].includes(v) ||
+           v.includes('night') || v.includes('available');
   }
 
-  function isJTC(v){ return normalize(v) === 'jtc'; }
+  function isJTC(v){
+    return normalize(v) === 'jtc';
+  }
 
   let markers = [];
 
   function rebuildMarkers(){
-    markers.forEach(m=>m.remove());
+    markers.forEach(m => m.remove());
     markers = [];
 
     const lonI = colKeyToIndex['{{ lon_t_key }}'];
@@ -209,7 +234,7 @@ $(function () {
 
       const lon = parseFloat(row[lonI]);
       const lat = parseFloat(row[latI]);
-      if (isNaN(lon)||isNaN(lat)) { n++; return; }
+      if (isNaN(lon) || isNaN(lat)) { n++; return; }
 
       const night = nI>=0 ? isNight(row[nI]) : false;
       const jtc   = sI>=0 ? isJTC(row[sI])  : false;
@@ -219,14 +244,18 @@ $(function () {
       el.textContent = n;
 
       markers.push(
-        new maplibregl.Marker(el).setLngLat([lon,lat]).addTo(map)
+        new maplibregl.Marker({element: el})
+          .setLngLat([lon,lat])
+          .addTo(map)
       );
+
       n++;
     });
   }
 
   table.on('draw', rebuildMarkers);
   map.on('load', rebuildMarkers);
+
 });
 </script>
 
