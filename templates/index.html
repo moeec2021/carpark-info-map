@@ -7,11 +7,10 @@
   <!-- Local CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre (proper tags – DO NOT change this pattern) -->
+  <!-- MapLibre (MUST be proper tags) -->
   <link rel="stylesheet"
         href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-  <script
-    src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <!-- DataTables -->
   <link rel="stylesheet"
@@ -19,6 +18,33 @@
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script
     src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <style>
+    #map {
+      height: 480px;
+      width: 100%;
+      border: 1px solid #223046;
+      border-radius: 12px;
+      margin: 12px 0;
+    }
+    .marker {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: rgba(239, 68, 68, 0.95);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(255,255,255,0.85);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+      cursor: pointer;
+    }
+    tr.row-selected td {
+      background: rgba(96,165,250,0.18) !important;
+    }
+  </style>
 </head>
 
 <body>
@@ -35,8 +61,7 @@
   <!-- Search -->
   <div class="searchbar">
     <label for="dtSearch"><strong>Search:</strong></label>
-    <input id="dtSearch" type="text"
-           placeholder="Search within table (client-side)">
+    <input id="dtSearch" type="text" placeholder="Search within table">
     <button id="clearSearch" type="button">Clear</button>
   </div>
 
@@ -57,8 +82,7 @@
 
   <h2>Map – All rows on current page</h2>
   <div class="map-note">
-    Markers are numbered to match “#”.  
-    Click a marker to highlight its row; click a row to pan the map.
+    Markers are numbered to match “#”. Click marker to highlight row.
   </div>
   <div id="map"></div>
 
@@ -82,21 +106,20 @@
     </thead>
     <tbody>
       {% for r in rows %}
-        <tr data-rowid="{{ loop.index0 }}">
-          <td class="col-rownum"></td>
-          <td class="col-geo"></td>
-          {% for c in column_keys %}
-            <td>{{ r.get(c, "") }}</td>
-          {% endfor %}
-        </tr>
+      <tr data-rowid="{{ loop.index0 }}">
+        <td class="col-rownum"></td>
+        <td class="col-geo"></td>
+        {% for c in column_keys %}
+        <td>{{ r.get(c, "") }}</td>
+        {% endfor %}
+      </tr>
       {% endfor %}
     </tbody>
   </table>
 
   <div class="footer">
-    <div><strong>Base map:</strong> OneMap raster tiles (Singapore Land Authority).</div>
-    <div><strong>Coordinate method:</strong>
-      SVY21 → WGS84 conversion performed server-side.</div>
+    <div><strong>Base map:</strong> OneMap raster tiles (SLA).</div>
+    <div><strong>Coordinates:</strong> SVY21 → WGS84 (server-side).</div>
   </div>
 
 </div>
@@ -114,23 +137,48 @@ $(function () {
     dom: 'lrtip'
   });
 
+  // Custom search
   function applySearch(val) {
     table.search(val).draw();
   }
-
-  let searchTimer = null;
+  let timer = null;
   $('#dtSearch').on('input', function () {
+    clearTimeout(timer);
     const val = this.value || '';
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(function () {
-      applySearch(val);
-    }, 150);
+    timer = setTimeout(() => applySearch(val), 150);
   });
-
   $('#clearSearch').on('click', function () {
     $('#dtSearch').val('');
     applySearch('');
   });
+
+  /* ---------------- Column toggle (FIXED) ---------------- */
+  const colKeyToIndex = {};
+  $('#carparkTable thead th').each(function (idx) {
+    const key = $(this).attr('data-colkey');
+    if (key) colKeyToIndex[key] = idx;
+  });
+
+  function applyToggle(key, show) {
+    const idx = colKeyToIndex[key];
+    if (idx !== undefined) {
+      table.column(idx).visible(show, false);
+    }
+  }
+
+  function applyAllToggles() {
+    $('.coltoggle').each(function () {
+      applyToggle($(this).data('colkey'), this.checked);
+    });
+    table.columns.adjust().draw(false);
+  }
+
+  $('.coltoggle').on('change', function () {
+    applyToggle($(this).data('colkey'), this.checked);
+    table.columns.adjust().draw(false);
+  });
+
+  applyAllToggles(); // ✅ apply on load
 
   /* ---------------- Map ---------------- */
   const map = new maplibregl.Map({
@@ -143,8 +191,7 @@ $(function () {
         onemap: {
           type: 'raster',
           tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© Singapore Land Authority'
+          tileSize: 256
         }
       },
       layers: [{ id:'base', type:'raster', source:'onemap' }]
@@ -152,10 +199,10 @@ $(function () {
   });
   map.addControl(new maplibregl.NavigationControl());
 
-  function colIndexByKey(key) {
-    return $('#carparkTable thead th').filter(function () {
-      return $(this).attr('data-colkey') === key;
-    }).index();
+  function highlightRow(rowId) {
+    $('#carparkTable tbody tr').removeClass('row-selected');
+    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]')
+      .addClass('row-selected');
   }
 
   let markers = [];
@@ -165,85 +212,51 @@ $(function () {
     markers = [];
   }
 
-  function highlightRow(rowId) {
-    $('#carparkTable tbody tr').removeClass('row-selected');
-    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]')
-      .addClass('row-selected');
-  }
-
-  function panTo(lon, lat) {
-    map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 15) });
-  }
-
-  /* -------- Key change: plot ALL rows on current page -------- */
   function buildMarkersForCurrentPage() {
     clearMarkers();
 
-    const idxLon = colIndexByKey('{{ lon_t_key }}');
-    const idxLat = colIndexByKey('{{ lat_t_key }}');
+    const idxLon = colKeyToIndex['{{ lon_t_key }}'];
+    const idxLat = colKeyToIndex['{{ lat_t_key }}'];
 
     const bounds = new maplibregl.LngLatBounds();
-    let visibleIndex = 1;
+    let n = 1;
 
-    const nodes = table.rows({ page: 'current' }).nodes();
-
-    $(nodes).each(function () {
+    table.rows({ page: 'current' }).nodes().each(function () {
       const $tr = $(this);
       const rowId = $tr.attr('data-rowid');
-
-      // numbering per page (1..N)
-      $tr.find('td.col-rownum').text(String(visibleIndex));
+      $tr.find('.col-rownum').text(n);
 
       const cells = $tr.find('td');
-      const lon = parseFloat($(cells[idxLon]).text().trim());
-      const lat = parseFloat($(cells[idxLat]).text().trim());
+      const lon = parseFloat($(cells[idxLon]).text());
+      const lat = parseFloat($(cells[idxLat]).text());
 
       if (isNaN(lon) || isNaN(lat)) {
-        $tr.find('td.col-geo').text('⚠️');
-        visibleIndex++;
+        $tr.find('.col-geo').text('⚠️');
+        n++;
         return;
+      } else {
+        $tr.find('.col-geo').text('✅');
       }
-
-      $tr.find('td.col-geo').text('✅');
 
       const el = document.createElement('div');
       el.className = 'marker';
-      el.textContent = String(visibleIndex);
+      el.textContent = n;
 
       const mk = new maplibregl.Marker({ element: el })
         .setLngLat([lon, lat])
         .addTo(map);
 
-      el.addEventListener('click', function () {
-        highlightRow(rowId);
-        panTo(lon, lat);
-      });
+      el.addEventListener('click', () => highlightRow(rowId));
 
       markers.push(mk);
       bounds.extend([lon, lat]);
-      visibleIndex++;
+      n++;
     });
 
     if (markers.length > 0) {
       map.fitBounds(bounds, { padding: 50, maxZoom: 16 });
     }
   }
-
-  $('#carparkTable tbody').on('click', 'tr', function () {
-    const idxLon = colIndexByKey('{{ lon_t_key }}');
-    const idxLat = colIndexByKey('{{ lat_t_key }}');
-    const $tr = $(this);
-    const rowId = $tr.attr('data-rowid');
-
-    const cells = $tr.find('td');
-    const lon = parseFloat($(cells[idxLon]).text().trim());
-    const lat = parseFloat($(cells[idxLat]).text().trim());
-
-    if (!isNaN(lon) && !isNaN(lat)) {
-      highlightRow(rowId);
-      panTo(lon, lat);
-    }
-  });
 
   table.on('draw', function () {
     $('#carparkTable tbody tr').removeClass('row-selected');
