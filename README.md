@@ -71,6 +71,3 @@ The app is designed to be:
 
 ---
 
-## Repository Structure
-
-``
