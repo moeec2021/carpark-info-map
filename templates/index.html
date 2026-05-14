@@ -7,13 +7,13 @@
   <!-- Local CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- ✅ MapLibre (proper HTML tags – CRITICAL) -->
+  <!-- MapLibre (MUST be proper tags – do NOT change this pattern) -->
   <link rel="stylesheet"
         href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script
     src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-  <!-- DataTables -->
+  <!-- DataTables + jQuery -->
   <link rel="stylesheet"
         href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -28,6 +28,7 @@
       border-radius: 12px;
       margin: 12px 0;
     }
+
     .marker {
       width: 22px;
       height: 22px;
@@ -37,14 +38,21 @@
       font-weight: 700;
       display: grid;
       place-items: center;
-      border: 2px solid #fff;
+      border: 2px solid rgba(255,255,255,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       cursor: pointer;
     }
-    .marker.red { background: rgb(239,68,68); }
-    .marker.blue { background: rgb(59,130,246); }
+    .marker.red  { background: rgba(239, 68, 68, 0.95); }
+    .marker.blue { background: rgba(59, 130, 246, 0.95); }
+
     tr.row-selected td {
       background: rgba(96,165,250,0.18) !important;
+    }
+
+    .legend {
+      color: #9ca3af;
+      font-size: 13px;
+      margin-bottom: 6px;
     }
   </style>
 </head>
@@ -60,7 +68,33 @@
     <span><strong>Total records:</strong> {{ total_ckan }}</span>
   </div>
 
+  <!-- SEARCH FEATURE (RESTORED AND STABLE) -->
+  <div class="searchbar">
+    <label><strong>Search:</strong></label>
+    <input id="dtSearch" type="text" placeholder="Search within table">
+    <button id="clearSearch" type="button">Clear</button>
+  </div>
+
+  <!-- COLUMN TOGGLES (RESTORED AND SAFE) -->
+  <div class="toggles">
+    <span class="toggles-title">Column toggles:</span>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="x_coord" checked> X Coord</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="y_coord" checked> Y Coord</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="{{ lon_t_key }}" checked>
+      Longitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="{{ lat_t_key }}" checked>
+      Latitude (Translated)</label>
+  </div>
+
+  <h2>Map – All rows on current page</h2>
+  <div class="legend">🔵 Night parking available &nbsp;|&nbsp; 🔴 No night parking</div>
   <div id="map"></div>
+
+  <h2>Carpark Data</h2>
 
   <table id="carparkTable" class="display">
     <thead>
@@ -96,14 +130,31 @@
 <script>
 $(function () {
 
+  /* ---------------- DataTables ---------------- */
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10,25,50,100],
     scrollX: true,
+    searching: true,
     dom: 'lrtip'
   });
 
-  // Map
+  $('#dtSearch').on('input', e => table.search(e.target.value).draw());
+  $('#clearSearch').on('click', () => table.search('').draw());
+
+  /* ---------------- Column index map (stable) ---------------- */
+  const colKeyToIndex = {};
+  $('#carparkTable thead th').each(function(i){
+    const k = $(this).attr('data-colkey');
+    if (k) colKeyToIndex[k] = i;
+  });
+
+  $('.coltoggle').on('change', function () {
+    const key = $(this).data('colkey');
+    table.column(colKeyToIndex[key]).visible(this.checked);
+  });
+
+  /* ---------------- Map ---------------- */
   const map = new maplibregl.Map({
     container: 'map',
     center: {{ map_center | tojson }},
@@ -114,64 +165,77 @@ $(function () {
         onemap: {
           type: 'raster',
           tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
-          tileSize: 256
+          tileSize: 256,
+          attribution: '© Singapore Land Authority'
         }
       },
       layers: [{ id:'base', type:'raster', source:'onemap' }]
     }
   });
 
+  map.addControl(new maplibregl.NavigationControl());
+
+  function normalize(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+  function findNightParkingIndex(){
+    let idx = -1;
+    $('#carparkTable thead th').each(function(i){
+      const k = normalize($(this).attr('data-colkey') || $(this).text());
+      if (k.includes('night') && k.includes('parking')) idx = i;
+    });
+    return idx;
+  }
+
+  function hasNight(val){
+    const v = String(val||'').toLowerCase();
+    return v.includes('yes') || v.includes('available') || v.includes('true');
+  }
+
   let markers = [];
 
-  map.on('load', function () {
-    rebuildMarkers();
-  });
-
-  table.on('draw', rebuildMarkers);
-
-  function rebuildMarkers() {
-    markers.forEach(m => m.remove());
+  function rebuildMarkers(){
+    markers.forEach(m=>m.remove());
     markers = [];
 
-    const columns = {};
-    $('#carparkTable thead th').each(function(i){
-      const k = $(this).attr('data-colkey');
-      if (k) columns[k] = i;
-    });
+    const lonIdx = colKeyToIndex['{{ lon_t_key }}'];
+    const latIdx = colKeyToIndex['{{ lat_t_key }}'];
+    const nightIdx = findNightParkingIndex();
 
-    table.rows({ page:'current' }).every(function(idx){
+    const bounds = new maplibregl.LngLatBounds();
+    let n = 1;
+
+    table.rows({page:'current'}).every(function(){
       const tr = this.node();
-      const data = this.data();
+      const row = this.data();
 
-      const lon = parseFloat(data[columns['{{ lon_t_key }}']]);
-      const lat = parseFloat(data[columns['{{ lat_t_key }}']]);
+      $(tr).find('.col-rownum').text(n);
 
-      $(tr).find('.col-rownum').text(idx + 1);
+      const lon = parseFloat(row[lonIdx]);
+      const lat = parseFloat(row[latIdx]);
 
-      if (isNaN(lon) || isNaN(lat)) {
+      if (isNaN(lon) || isNaN(lat)){
         $(tr).find('.col-geo').text('⚠️');
-        return;
+        n++; return;
       }
       $(tr).find('.col-geo').text('✅');
 
-      // ✅ Night parking detection: defensive
-      let night = '';
-      if (columns['night_parking'] !== undefined) {
-        night = String(data[columns['night_parking']]).toLowerCase();
-      }
+      const isNight = nightIdx >= 0 ? hasNight(row[nightIdx]) : false;
 
       const el = document.createElement('div');
-      el.className = 'marker ' +
-        (night.includes('yes') || night.includes('available') ? 'blue' : 'red');
-      el.textContent = idx + 1;
+      el.className = 'marker ' + (isNight ? 'blue' : 'red');
+      el.textContent = n;
 
-      const mk = new maplibregl.Marker(el)
-        .setLngLat([lon, lat])
-        .addTo(map);
-
+      const mk = new maplibregl.Marker(el).setLngLat([lon,lat]).addTo(map);
       markers.push(mk);
+      bounds.extend([lon,lat]);
+      n++;
     });
+
+    if (markers.length) map.fitBounds(bounds,{padding:50,maxZoom:16});
   }
+
+  table.on('draw', rebuildMarkers);
+  map.on('load', rebuildMarkers);
 
 });
 </script>
