@@ -1,24 +1,18 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  {{ url_for('static', filename='style.css') }}
+  <!-- ✅ Correct stylesheet link (prevents '/static/style.css' from printing) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- ✅ MapLibre – CORRECTLY LOADED -->
-  <link
-    href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
-    rel="stylesheet"
-  />
-  <script
-    src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"
-  ></script>
+  <!-- ✅ MapLibre (proper tags) -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-  <!-- DataTables + jQuery -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <!-- ✅ DataTables + jQuery (proper tags) -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
@@ -26,12 +20,13 @@
     #map {
       height: 480px;
       width: 100%;
-      border: 1px solid #223046;
+      border: 1px solid var(--border);
       border-radius: 12px;
       margin: 12px 0;
+      overflow: hidden;
     }
 
-    /* Base marker */
+    /* Numbered circular locator */
     .marker {
       width: 22px;
       height: 22px;
@@ -40,32 +35,28 @@
       place-items: center;
       font-size: 12px;
       font-weight: 700;
+      user-select: none;
+      cursor: pointer;
+
+      /* default fill (red) + ring (white) */
+      background: rgba(239,68,68,0.95);
       color: #ffffff;
       border: 2px solid rgba(255,255,255,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-      user-select: none;
-      cursor: pointer;
-      background: rgba(239,68,68,0.95); /* default red */
     }
 
-    /* Night parking fill */
+    /* Night parking fill colours */
     .marker.blue { background: rgba(59,130,246,0.95) !important; }
     .marker.red  { background: rgba(239,68,68,0.95) !important; }
 
-    /* ✅ JTC styling — pink circle ring + pink number */
+    /* JTC styling: pink ring + pink number, KEEP night fill colours */
     .marker.jtc {
-      border-color: #ec4899 !important; /* pink ring */
-      color: #f472b6 !important;        /* pink number */
+      border-color: #ec4899 !important;
+      color: #f472b6 !important;
     }
 
     tr.row-selected td {
       background: rgba(96,165,250,0.18) !important;
-    }
-
-    .legend {
-      color: #9ca3af;
-      font-size: 13px;
-      margin-bottom: 6px;
     }
   </style>
 </head>
@@ -74,6 +65,7 @@
 <div class="container">
 
   <h1>{{ app_title }}</h1>
+
   <div class="banner">Dataset: {{ resource_id }}</div>
 
   <div class="meta">
@@ -81,41 +73,48 @@
     <span><strong>Total records:</strong> {{ total_ckan }}</span>
   </div>
 
+  <!-- Server-side filter -->
+  <form method="get" class="filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Server-side contains filter">
+    <button type="submit">Apply server filter</button>
+    <a class="link" href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
+    <a class="link" href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
+  </form>
+
+  <!-- Client-side search -->
   <div class="searchbar">
-    <label><strong>Search:</strong></label>
-    <input id="dtSearch" type="text" placeholder="Search within table">
+    <label>Search:</label>
+    <input id="dtSearch" type="text" placeholder="Search within table (client-side)">
     <button id="clearSearch" type="button">Clear</button>
   </div>
 
+  <!-- Column toggles -->
   <div class="toggles">
     <span class="toggles-title">Column toggles:</span>
-    <label><input type="checkbox" class="coltoggle"
-                  data-colkey="x_coord" checked> X Coord</label>
-    <label><input type="checkbox" class="coltoggle"
-                  data-colkey="y_coord" checked> Y Coord</label>
-    <label><input type="checkbox" class="coltoggle"
-                  data-colkey="{{ lon_t_key }}" checked>
-      Longitude (Translated)</label>
-    <label><input type="checkbox" class="coltoggle"
-                  data-colkey="{{ lat_t_key }}" checked>
-      Latitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="x_coord" checked> X Coord</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="y_coord" checked> Y Coord</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lon_t_key }}" checked> Longitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lat_t_key }}" checked> Latitude (Translated)</label>
   </div>
 
   <h2>Map – All rows on current page</h2>
 
-  <!-- ✅ LEGEND FIXED: pink CIRCLE, not heart -->
+  <!-- ✅ Label fixed -->
   <div class="legend">
     Fill: 🔵 Night parking | 🔴 No night parking &nbsp;•&nbsp;
-    Circle ring + number: 🟣 JTC | ⚪ HDB
+    Dataset: 🟣 JTC | ⚪ HDB
   </div>
 
   <div id="map"></div>
+
+  <h2>Carpark Data</h2>
 
   <table id="carparkTable" class="display">
     <thead>
       <tr>
         <th data-colkey="_rownum">#</th>
         <th data-colkey="_geo">Geocoded</th>
+
         {% for c in column_keys %}
           {% if c == lon_t_key %}
             <th data-colkey="{{ c }}">Longitude (Translated)</th>
@@ -127,6 +126,7 @@
         {% endfor %}
       </tr>
     </thead>
+
     <tbody>
       {% for r in rows %}
       <tr data-rowid="{{ loop.index0 }}">
@@ -143,34 +143,40 @@
 </div>
 
 <script>
-$(function(){
+$(function () {
 
   if (typeof maplibregl === 'undefined') {
-    console.error('MapLibre failed to load — markers will not render.');
+    console.error('MapLibre failed to load. Check MapLibre <script> tag.');
     return;
   }
 
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
-    lengthMenu: [10,25,50,100],
+    lengthMenu: [10, 25, 50, 100],
     scrollX: true,
     searching: true,
     deferRender: true,
     dom: 'lrtip'
   });
 
-  $('#dtSearch').on('input', e => table.search(e.target.value).draw());
+  $('#dtSearch').on('input', e => table.search(e.target.value || '').draw());
   $('#clearSearch').on('click', () => table.search('').draw());
 
+  // Build stable colkey -> column index mapping (for toggles and data reads)
   const colKeyToIndex = {};
-  $('#carparkTable thead th').each(function(i){
+  $('#carparkTable thead th').each(function(i) {
     const k = $(this).attr('data-colkey');
     if (k) colKeyToIndex[k] = i;
   });
 
-  $('.coltoggle').on('change', function(){
-    table.column(colKeyToIndex[$(this).data('colkey')])
-         .visible(this.checked);
+  // Column toggles
+  $('.coltoggle').on('change', function() {
+    const key = $(this).data('colkey');
+    const idx = colKeyToIndex[key];
+    if (idx !== undefined) {
+      table.column(idx).visible(this.checked);
+      table.columns.adjust().draw(false);
+    }
   });
 
   const map = new maplibregl.Map({
@@ -182,80 +188,136 @@ $(function(){
       sources: {
         onemap: {
           type: 'raster',
-          tiles: [
-            'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
-          ],
-          tileSize: 256
+          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© Singapore Land Authority'
         }
       },
       layers: [{ id:'base', type:'raster', source:'onemap' }]
     }
   });
 
-  function normalize(s){
-    return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  map.addControl(new maplibregl.NavigationControl());
+
+  function norm(v) {
+    return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
   }
 
-  function findIndex(match){
+  function findColIndex(predicate) {
     let idx = -1;
-    $('#carparkTable thead th').each(function(i){
-      const k = normalize($(this).attr('data-colkey') || $(this).text());
-      if (match(k)) idx = i;
+    $('#carparkTable thead th').each(function(i) {
+      const k = norm($(this).attr('data-colkey') || $(this).text());
+      if (predicate(k)) idx = i;
     });
     return idx;
   }
 
-  const nightIdx = () => findIndex(k => k.includes('night') && k.includes('parking'));
-  const srcIdx   = () => findIndex(k => k.includes('data') && k.includes('source'));
-
-  function isNight(v){
-    v = normalize(v);
-    return ['yes','y','true','t','1'].includes(v) ||
-           v.includes('night') || v.includes('available');
+  function isTruthyNight(val) {
+    const v = norm(val);
+    if (v === '') return false;
+    if (v === 'yes' || v === 'y' || v === 'true' || v === 't' || v === '1') return true;
+    if (v.includes('available') || v.includes('overnight') || v.includes('night')) return true;
+    return false;
   }
 
-  function isJTC(v){
-    return normalize(v) === 'jtc';
+  function isJtc(val) {
+    return norm(val) === 'jtc';
+  }
+
+  const getNightIdx = () => findColIndex(k => k.includes('night') && k.includes('parking'));
+  const getSrcIdx   = () => findColIndex(k => (k === 'datasource') || (k.includes('data') && k.includes('source')));
+
+  function highlightRow(rowId) {
+    $('#carparkTable tbody tr').removeClass('row-selected');
+    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]').addClass('row-selected');
+  }
+
+  function panTo(lon, lat) {
+    map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 15) });
   }
 
   let markers = [];
 
-  function rebuildMarkers(){
+  function clearMarkers() {
     markers.forEach(m => m.remove());
     markers = [];
+  }
 
-    const lonI = colKeyToIndex['{{ lon_t_key }}'];
-    const latI = colKeyToIndex['{{ lat_t_key }}'];
-    const nI = nightIdx();
-    const sI = srcIdx();
+  function rebuildMarkers() {
+    clearMarkers();
 
+    const lonIdx = colKeyToIndex['{{ lon_t_key }}'];
+    const latIdx = colKeyToIndex['{{ lat_t_key }}'];
+    const nightIdx = getNightIdx();
+    const srcIdx = getSrcIdx();
+
+    if (lonIdx === undefined || latIdx === undefined) {
+      console.warn('Translated lon/lat columns not found.');
+      return;
+    }
+
+    const bounds = new maplibregl.LngLatBounds();
     let n = 1;
-    table.rows({page:'current'}).every(function(){
-      const row = this.data();
+
+    table.rows({ page: 'current' }).every(function() {
       const tr = this.node();
+      const rowId = $(tr).attr('data-rowid');
+      const row = this.data();
 
       $(tr).find('.col-rownum').text(n);
 
-      const lon = parseFloat(row[lonI]);
-      const lat = parseFloat(row[latI]);
-      if (isNaN(lon) || isNaN(lat)) { n++; return; }
+      const lon = parseFloat(row[lonIdx]);
+      const lat = parseFloat(row[latIdx]);
 
-      const night = nI>=0 ? isNight(row[nI]) : false;
-      const jtc   = sI>=0 ? isJTC(row[sI])  : false;
+      if (isNaN(lon) || isNaN(lat)) {
+        $(tr).find('.col-geo').text('⚠️');
+        n++;
+        return;
+      }
+
+      $(tr).find('.col-geo').text('✅');
+
+      const night = (nightIdx >= 0 && nightIdx < row.length) ? isTruthyNight(row[nightIdx]) : false;
+      const jtc = (srcIdx >= 0 && srcIdx < row.length) ? isJtc(row[srcIdx]) : false;
 
       const el = document.createElement('div');
-      el.className = `marker ${night?'blue':'red'}${jtc?' jtc':''}`;
-      el.textContent = n;
+      el.className = 'marker ' + (night ? 'blue' : 'red') + (jtc ? ' jtc' : '');
+      el.textContent = String(n);
 
-      markers.push(
-        new maplibregl.Marker({element: el})
-          .setLngLat([lon,lat])
-          .addTo(map)
-      );
+      const mk = new maplibregl.Marker({ element: el })
+        .setLngLat([lon, lat])
+        .addTo(map);
 
+      el.addEventListener('click', function() {
+        highlightRow(rowId);
+        panTo(lon, lat);
+      });
+
+      markers.push(mk);
+      bounds.extend([lon, lat]);
       n++;
     });
+
+    if (markers.length > 0) {
+      map.fitBounds(bounds, { padding: 50, maxZoom: 16 });
+    }
   }
+
+  // Sync: clicking a row pans map
+  $('#carparkTable tbody').on('click', 'tr', function() {
+    const lonIdx = colKeyToIndex['{{ lon_t_key }}'];
+    const latIdx = colKeyToIndex['{{ lat_t_key }}'];
+    const row = table.row(this).data();
+    if (!row || lonIdx === undefined || latIdx === undefined) return;
+
+    const lon = parseFloat(row[lonIdx]);
+    const lat = parseFloat(row[latIdx]);
+    if (!isNaN(lon) && !isNaN(lat)) {
+      const rowId = $(this).attr('data-rowid');
+      highlightRow(rowId);
+      panTo(lon, lat);
+    }
+  });
 
   table.on('draw', rebuildMarkers);
   map.on('load', rebuildMarkers);
