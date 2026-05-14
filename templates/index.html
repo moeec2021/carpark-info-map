@@ -7,14 +7,18 @@
   <!-- Local CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre (MUST be proper tags) -->
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <!-- MapLibre (proper tags – DO NOT change this pattern) -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script
+    src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <!-- DataTables -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <script
+    src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 </head>
 
 <body>
@@ -28,32 +32,37 @@
     <span><strong>Total records:</strong> {{ total_ckan }}</span>
   </div>
 
-  <div class="actions">
-    <a class="link" href="/?refresh=1">Refresh cache</a>
-  </div>
-
-  <!-- Search feature (single search box; drives DataTables search) -->
+  <!-- Search -->
   <div class="searchbar">
     <label for="dtSearch"><strong>Search:</strong></label>
-    <input id="dtSearch" type="text" placeholder="Search within table (client-side)">
+    <input id="dtSearch" type="text"
+           placeholder="Search within table (client-side)">
     <button id="clearSearch" type="button">Clear</button>
   </div>
 
   <!-- Column toggles -->
   <div class="toggles">
     <span class="toggles-title">Column toggles:</span>
-    <label><input type="checkbox" class="coltoggle" data-colkey="x_coord" checked> X Coord</label>
-    <label><input type="checkbox" class="coltoggle" data-colkey="y_coord" checked> Y Coord</label>
-    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lon_t_key }}" checked> Longitude (Translated)</label>
-    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lat_t_key }}" checked> Latitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="x_coord" checked> X Coord</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="y_coord" checked> Y Coord</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="{{ lon_t_key }}" checked>
+      Longitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle"
+                  data-colkey="{{ lat_t_key }}" checked>
+      Latitude (Translated)</label>
   </div>
 
-  <h2>Map – First 10 rows on current page</h2>
-  <div class="map-note">Markers are numbered to match “#”. Click a marker to highlight its row; click a row to pan to the marker.</div>
+  <h2>Map – All rows on current page</h2>
+  <div class="map-note">
+    Markers are numbered to match “#”.  
+    Click a marker to highlight its row; click a row to pan the map.
+  </div>
   <div id="map"></div>
 
   <h2>Carpark Data</h2>
-
   <table id="carparkTable" class="display">
     <thead>
       <tr>
@@ -71,7 +80,6 @@
         {% endfor %}
       </tr>
     </thead>
-
     <tbody>
       {% for r in rows %}
         <tr data-rowid="{{ loop.index0 }}">
@@ -86,18 +94,17 @@
   </table>
 
   <div class="footer">
-    <div><strong>Base map:</strong> OneMap raster tiles (Singapore Land Authority) rendered via MapLibre GL.</div>
-    <div><strong>Coordinate method:</strong> WGS84 lon/lat computed from SVY21 x/y server-side.</div>
-    <div class="small">Rows without valid translated coords show ⚠️ and are not plotted.</div>
+    <div><strong>Base map:</strong> OneMap raster tiles (Singapore Land Authority).</div>
+    <div><strong>Coordinate method:</strong>
+      SVY21 → WGS84 conversion performed server-side.</div>
   </div>
 
 </div>
 
 <script>
 $(function () {
-  // DataTables init:
-  // - searching enabled (we drive it via our custom input)
-  // - dom removes default search UI to avoid duplicate search bars
+
+  /* ---------------- DataTables ---------------- */
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100],
@@ -107,7 +114,6 @@ $(function () {
     dom: 'lrtip'
   });
 
-  // Custom search input drives DataTables search
   function applySearch(val) {
     table.search(val).draw();
   }
@@ -126,10 +132,10 @@ $(function () {
     applySearch('');
   });
 
-  // MapLibre + OneMap raster tiles
+  /* ---------------- Map ---------------- */
   const map = new maplibregl.Map({
     container: 'map',
-    center: {{ map_center | tojson }},   // [lon, lat]
+    center: {{ map_center | tojson }},
     zoom: 12,
     style: {
       version: 8,
@@ -144,7 +150,6 @@ $(function () {
       layers: [{ id:'base', type:'raster', source:'onemap' }]
     }
   });
-
   map.addControl(new maplibregl.NavigationControl());
 
   function colIndexByKey(key) {
@@ -152,15 +157,6 @@ $(function () {
       return $(this).attr('data-colkey') === key;
     }).index();
   }
-
-  function applyToggle(key, show) {
-    const idx = colIndexByKey(key);
-    if (idx >= 0) table.column(idx).visible(show);
-  }
-
-  $('.coltoggle').on('change', function () {
-    applyToggle($(this).data('colkey'), this.checked);
-  });
 
   let markers = [];
 
@@ -171,13 +167,15 @@ $(function () {
 
   function highlightRow(rowId) {
     $('#carparkTable tbody tr').removeClass('row-selected');
-    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]').addClass('row-selected');
+    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]')
+      .addClass('row-selected');
   }
 
   function panTo(lon, lat) {
     map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 15) });
   }
 
+  /* -------- Key change: plot ALL rows on current page -------- */
   function buildMarkersForCurrentPage() {
     clearMarkers();
 
@@ -185,39 +183,32 @@ $(function () {
     const idxLat = colIndexByKey('{{ lat_t_key }}');
 
     const bounds = new maplibregl.LngLatBounds();
-    let count = 0;
+    let visibleIndex = 1;
 
     const nodes = table.rows({ page: 'current' }).nodes();
 
     $(nodes).each(function () {
-      if (count >= 10) return false;
-
       const $tr = $(this);
       const rowId = $tr.attr('data-rowid');
 
-      // Row numbering
-      $tr.find('td.col-rownum').text(String(count + 1));
+      // numbering per page (1..N)
+      $tr.find('td.col-rownum').text(String(visibleIndex));
 
       const cells = $tr.find('td');
-      const lonTxt = (idxLon >= 0) ? $(cells[idxLon]).text().trim() : '';
-      const latTxt = (idxLat >= 0) ? $(cells[idxLat]).text().trim() : '';
+      const lon = parseFloat($(cells[idxLon]).text().trim());
+      const lat = parseFloat($(cells[idxLat]).text().trim());
 
-      const lon = parseFloat(lonTxt);
-      const lat = parseFloat(latTxt);
-
-      // Geocode indicator
-      if (!isNaN(lon) && !isNaN(lat)) {
-        $tr.find('td.col-geo').html('<span class="pill ok">✅</span>');
-      } else {
-        $tr.find('td.col-geo').html('<span class="pill warn">⚠️</span>');
-        count++;
+      if (isNaN(lon) || isNaN(lat)) {
+        $tr.find('td.col-geo').text('⚠️');
+        visibleIndex++;
         return;
       }
 
-      // Numbered marker
+      $tr.find('td.col-geo').text('✅');
+
       const el = document.createElement('div');
       el.className = 'marker';
-      el.textContent = String(count + 1);
+      el.textContent = String(visibleIndex);
 
       const mk = new maplibregl.Marker({ element: el })
         .setLngLat([lon, lat])
@@ -230,7 +221,7 @@ $(function () {
 
       markers.push(mk);
       bounds.extend([lon, lat]);
-      count++;
+      visibleIndex++;
     });
 
     if (markers.length > 0) {
@@ -238,15 +229,13 @@ $(function () {
     }
   }
 
-  // Click row to pan
   $('#carparkTable tbody').on('click', 'tr', function () {
     const idxLon = colIndexByKey('{{ lon_t_key }}');
     const idxLat = colIndexByKey('{{ lat_t_key }}');
-
     const $tr = $(this);
     const rowId = $tr.attr('data-rowid');
-    const cells = $tr.find('td');
 
+    const cells = $tr.find('td');
     const lon = parseFloat($(cells[idxLon]).text().trim());
     const lat = parseFloat($(cells[idxLat]).text().trim());
 
@@ -256,13 +245,11 @@ $(function () {
     }
   });
 
-  // Redraw markers when paging/searching/sorting changes the visible rows
   table.on('draw', function () {
     $('#carparkTable tbody tr').removeClass('row-selected');
     buildMarkersForCurrentPage();
   });
 
-  // Only build markers after map load
   map.on('load', function () {
     buildMarkersForCurrentPage();
   });
