@@ -4,20 +4,21 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {{ url_for('static', filename='style.css') }}
 
   <!-- ✅ MapLibre – CORRECTLY LOADED -->
   <link
-    rel="stylesheet"
     href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
+    rel="stylesheet"
   />
   <script
     src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"
   ></script>
 
   <!-- DataTables + jQuery -->
-  <link rel="stylesheet"
-        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <link
+    rel="stylesheet"
+    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
@@ -51,7 +52,7 @@
     .marker.blue { background: rgba(59,130,246,0.95) !important; }
     .marker.red  { background: rgba(239,68,68,0.95) !important; }
 
-    /* ✅ JTC styling — PINK ring + PINK number ONLY */
+    /* ✅ JTC styling — pink circle ring + pink number */
     .marker.jtc {
       border-color: #ec4899 !important; /* pink ring */
       color: #f472b6 !important;        /* pink number */
@@ -101,10 +102,13 @@
   </div>
 
   <h2>Map – All rows on current page</h2>
+
+  <!-- ✅ LEGEND FIXED: pink CIRCLE, not heart -->
   <div class="legend">
     Fill: 🔵 Night parking | 🔴 No night parking &nbsp;•&nbsp;
-    Ring & Number: 🩷 JTC | ⚪ HDB
+    Circle ring + number: 🟣 JTC | ⚪ HDB
   </div>
+
   <div id="map"></div>
 
   <table id="carparkTable" class="display">
