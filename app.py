@@ -9,31 +9,30 @@ from flask import Flask, render_template, request, Response, jsonify
 
 APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
 
-# CKAN (carpark info datasets)
+# CKAN carpark info datasets
 CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
 FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))
 MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
 HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
 
-# Data.gov.sg Transport API (availability)
+# Availability API (optional API key)
 DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
-AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))  # recommended: call every minute [1](https://gccprod-my.sharepoint.com/personal/ernest_chung_acra_gov_sg/Documents/Downloads/CarparkAvailability%20(2).json?web=1)
+AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
 
-# Carpark info datasets to merge
+# HDB + JTC carpark info datasets
 DATASETS = [
     {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
     {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
 ]
 
-# Normalised / computed columns
 X_COL = "x_coord"
 Y_COL = "y_coord"
 LON_T = "longitude_translated"
 LAT_T = "latitude_translated"
 SRC_COL = "data_source"
 
-# Availability columns to add
+# Availability columns
 AVAIL_TS = "availability_timestamp"
 LOTS_AVAIL_C = "lots_available_C"
 TOTAL_LOTS_C = "total_lots_C"
@@ -67,14 +66,11 @@ _cache = {
 _avail_cache = {
     "expires_at": 0.0,
     "timestamp": "",
-    # carpark_number -> { lot_type: (avail, total) }
-    "map": {},
+    "map": {},  # carpark_number -> { lot_type: (avail, total) }
 }
-
 
 def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
 
 def safe_float(v):
     if v is None:
@@ -89,7 +85,6 @@ def safe_float(v):
     except ValueError:
         return None
 
-
 def safe_int(v):
     if v is None:
         return None
@@ -101,10 +96,8 @@ def safe_int(v):
     except ValueError:
         return None
 
-
 def datastore_search_url():
     return CKAN_ACTION_BASE.rstrip("/") + "/datastore_search"
-
 
 def find_key_case_insensitive(keys, candidates):
     lk = {k.lower(): k for k in keys}
@@ -113,7 +106,6 @@ def find_key_case_insensitive(keys, candidates):
         if hit:
             return hit
     return None
-
 
 # SVY21 (EPSG:3414) inverse Transverse Mercator -> WGS84 (EPSG:4326)
 def svy21_to_wgs84(easting, northing):
@@ -181,7 +173,6 @@ def svy21_to_wgs84(easting, northing):
 
     return math.degrees(lon), math.degrees(lat)
 
-
 def fetch_dataset(resource_id):
     url = datastore_search_url()
     offset = 0
@@ -233,7 +224,6 @@ def fetch_dataset(resource_id):
 
     return rows, cols
 
-
 def compute_translated_and_normalize_xy(rows):
     x_candidates = ["x_coord", "x", "easting", "east", "xcoord", "x-coordinate", "xcoordinate"]
     y_candidates = ["y_coord", "y", "northing", "north", "ycoord", "y-coordinate", "ycoordinate"]
@@ -259,7 +249,6 @@ def compute_translated_and_normalize_xy(rows):
             r[LON_T] = f"{lon:.6f}"
             r[LAT_T] = f"{lat:.6f}"
 
-
 def fetch_availability(force_refresh=False):
     now = time.time()
     if (not force_refresh) and now < _avail_cache["expires_at"]:
@@ -284,16 +273,11 @@ def fetch_availability(force_refresh=False):
             ts = first.get("timestamp") or ""
 
             carpark_data = first.get("carpark_data") or []
-
-            # Expected real-world shape:
-            # carpark_data: [{carpark_number, carpark_info:[{lot_type,total_lots,lots_available}, ...]}, ...]
-            # The OpenAPI snippet in [CarparkAvailability (2).json](https://gccprod-my.sharepoint.com/personal/ernest_chung_acra_gov_sg/Documents/Downloads/CarparkAvailability%20%282%29.json?web=1&EntityRepresentationId=715df263-0574-4b78-8c83-089791f24426) omits carpark_number, so we guard accordingly. [1](https://gccprod-my.sharepoint.com/personal/ernest_chung_acra_gov_sg/Documents/Downloads/CarparkAvailability%20(2).json?web=1)
             for entry in carpark_data:
                 cpn = (
                     entry.get("carpark_number")
                     or entry.get("carpark_no")
                     or entry.get("car_park_no")
-                    or entry.get("carpark")
                     or ""
                 )
                 if not cpn:
@@ -301,7 +285,7 @@ def fetch_availability(force_refresh=False):
 
                 info_list = entry.get("carpark_info") or []
                 if not isinstance(info_list, list):
-                    info_list = []
+                    continue
 
                 if cpn not in amap:
                     amap[cpn] = {}
@@ -325,7 +309,6 @@ def fetch_availability(force_refresh=False):
         "map": amap
     })
     return _avail_cache
-
 
 def apply_availability(rows):
     avail = fetch_availability(force_refresh=False)
@@ -365,20 +348,17 @@ def apply_availability(rows):
         set_lot("S", LOTS_AVAIL_S, TOTAL_LOTS_S)
         set_lot("Y", LOTS_AVAIL_Y, TOTAL_LOTS_Y)
 
-
 def build_merged_columns(all_cols):
     base = [c for c in all_cols if c not in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
     base += AVAIL_COLS
     base += [X_COL, Y_COL, LON_T, LAT_T, SRC_COL]
     return base
 
-
 def get_data(force_refresh=False):
     now = time.time()
     if (not force_refresh) and _cache["rows"] and now < _cache["expires_at"]:
         return _cache
 
-    # refresh availability at most once per cycle
     fetch_availability(force_refresh=True if force_refresh else False)
 
     merged_rows = []
@@ -414,7 +394,6 @@ def get_data(force_refresh=False):
     })
     return _cache
 
-
 def filter_rows(rows, q):
     if not q:
         return rows
@@ -430,7 +409,6 @@ def filter_rows(rows, q):
                 out.append(r)
                 break
     return out
-
 
 @app.route("/")
 def index():
@@ -470,7 +448,6 @@ def index():
         map_center=map_center,
     )
 
-
 @app.route("/download.csv")
 def download_csv():
     q = request.args.get("q", "")
@@ -489,11 +466,9 @@ def download_csv():
         headers={"Content-Disposition": "attachment; filename=carparks_with_availability.csv"},
     )
 
-
 @app.route("/healthz")
 def healthz():
     return jsonify(ok=True)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
