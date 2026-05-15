@@ -1,99 +1,204 @@
-:root { color-scheme: light dark; }
+/* ==============================
+   GLOBAL THEME
+============================== */
 
 :root {
-  --bg: #ffffff;
-  --fg: #111827;
-  --muted: #6b7280;
-  --panel: #f3f4f6;
-  --border: #d1d5db;
-  --inputbg: #ffffff;
+  --bg: #0b0f14;
+  --card-bg: #111827;
+  --border: #1f2937;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #3b82f6;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b0f14;
-    --fg: #e5e7eb;
-    --muted: #9ca3af;
-    --panel: #111827;
-    --border: #223046;
-    --inputbg: rgba(0,0,0,0.25);
-  }
-}
-
-html, body {
+body {
   margin: 0;
-  padding: 0;
   background: var(--bg);
-  color: var(--fg);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, Helvetica, Arial, sans-serif;
 }
+
+/* ==============================
+   TYPOGRAPHY
+============================== */
+
+h1, h2, h3 {
+  margin: 0 0 10px 0;
+  font-weight: 600;
+}
+
+h2 {
+  padding: 12px 10px 4px 10px;
+  font-size: 20px;
+}
+
+/* ==============================
+   LAYOUT
+============================== */
 
 .container {
-  max-width: 1200px;
-  margin: auto;
-  padding: 16px;
+  padding: 12px 16px;
 }
 
-.banner {
-  display: inline-block;
-  background: var(--panel);
-  color: var(--fg);
-  padding: 6px 12px;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  font-size: 13px;
+#map {
+  width: 100%;
+  height: 480px;
+  border-radius: 12px;
   border: 1px solid var(--border);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+/* ==============================
+   TABLE (DATATABLES)
+============================== */
+
+table.dataTable {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dataTables_wrapper {
+  margin-top: 10px;
+}
+
+.dataTables_wrapper .dataTables_filter input {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.dataTables_wrapper .dataTables_length select {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+table.dataTable thead {
+  background: #111827;
+}
+
+table.dataTable thead th {
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+table.dataTable tbody td {
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+table.dataTable tbody tr:hover {
+  background: #1f2937;
+}
+
+/* ==============================
+   STATUS INDICATORS
+============================== */
+
+.idx {
+  font-weight: 700;
+  text-align: center;
+}
+
+.col-geo {
+  text-align: center;
+  font-size: 14px;
+}
+
+/* ==============================
+   LEGEND / META (OPTIONAL)
+============================== */
+
+.banner {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 6px;
 }
 
 .meta {
   display: flex;
   gap: 16px;
-  flex-wrap: wrap;
-  color: var(--muted);
   font-size: 13px;
+  color: var(--muted);
   margin-bottom: 10px;
 }
 
-.filter, .searchbar {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
+.legend {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* ==============================
+   SEARCH BAR
+============================== */
+
+.searchbar {
   margin: 10px 0;
 }
 
-input[type="text"] {
-  padding: 10px 12px;
-  border-radius: 10px;
+.searchbar input {
+  padding: 6px 8px;
+  border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--inputbg);
-  color: var(--fg);
-  min-width: 320px;
+  background: #0f172a;
+  color: white;
 }
 
-button {
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
+.searchbar button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: white;
   cursor: pointer;
 }
 
-button:hover { filter: brightness(1.08); }
-
-.link {
-  color: #60a5fa;
-  text-decoration: none;
-  font-size: 13px;
-}
-.link:hover { text-decoration: underline; }
-
-.legend {
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 6px;
+.searchbar button:hover {
+  background: #2563eb;
 }
 
-.dataTables_filter { display: none !important; }
-.dataTables_wrapper { color: var(--fg) !important; }
+/* ==============================
+   RESPONSIVENESS
+============================== */
+
+@media (max-width: 768px) {
+  #map {
+    height: 360px;
+  }
+
+  table.dataTable {
+    font-size: 12px;
+  }
+}
+
+/* ==============================
+   DARK MODE AUTO SUPPORT
+============================== */
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f9fafb;
+    --card-bg: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+  }
+
+  body {
+    color: var(--text);
+  }
+
+  table.dataTable tbody tr:hover {
+    background: #f3f4f6;
+  }
+}
