@@ -1,171 +1,132 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8">
-  <title>{{ app_title }}</title>
+<meta charset="utf-8">
+<title>{{ app_title }}</title>
 
-  <!-- ✅ Correct includes (no raw URLs!) -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
-  <link rel="stylesheet"
-        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet"
+ href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <style>
-    #map { height: 480px; margin: 12px 0; }
+<style>
+#map { height: 500px; margin: 12px 0; }
 
-    .maplibregl-marker {
-      transition: transform 180ms ease-out;
-    }
-
-    .marker {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      font-weight: 800;
-      color: white;
-      background: #fb923c;
-      border: 2px solid #fff;
-      position: relative;
-    }
-
-    .marker.night { background: #3b82f6; }
-
-    .marker[data-avail]:not([data-avail=""])::after {
-      content: attr(data-avail);
-      position: absolute;
-      top: 26px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: black;
-      color: white;
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 6px;
-      white-space: nowrap;
-    }
-
-    .marker[data-avail=""]::after { display:none; }
-  </style>
+.marker {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: bold;
+  font-size: 12px;
+  background: #fb923c;
+  color: white;
+}
+.marker.night { background: #3b82f6; }
+</style>
 </head>
 
 <body>
 
 <h2>{{ app_title }}</h2>
 
+<input id="searchBox" placeholder="Search..." />
+
 <div id="map"></div>
 
 <table id="tbl" class="display">
-  <thead>
-    <tr>
-      <th>#</th>
-      <th>Carpark</th>
-      <th>Night Parking</th>
-    </tr>
-  </thead>
-  <tbody>
+<thead>
+<tr>
+<th>#</th>
+{% for c in column_keys %}
+<th>{{ c }}</th>
+{% endfor %}
+</tr>
+</thead>
 
-    <!-- ✅ DEMO DATA (replace later with backend rows) -->
-    <tr data-lon="103.851959" data-lat="1.29027">
-      <td></td><td>A1</td><td>YES</td>
-    </tr>
-    <tr data-lon="103.8198" data-lat="1.3521">
-      <td></td><td>B2</td><td>NO</td>
-    </tr>
-
-  </tbody>
+<tbody>
+{% for r in rows %}
+<tr data-lon="{{ r.get(lon_t_key,'') }}"
+    data-lat="{{ r.get(lat_t_key,'') }}">
+<td></td>
+{% for c in column_keys %}
+<td>{{ r.get(c,"") }}</td>
+{% endfor %}
+</tr>
+{% endfor %}
+</tbody>
 </table>
 
 <script>
-$(function(){
 
-  const table = $('#tbl').DataTable({
-    pageLength:10
-  });
-
-  const map = new maplibregl.Map({
-    container:'map',
-    center: {{ map_center|tojson }},
-    zoom:11,
-    style:{
-      version:8,
-      sources:{
-        onemap:{
-          type:"raster",
-          tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
-          tileSize:256
-        }
-      },
-      layers:[{id:'base',type:'raster',source:'onemap'}]
-    }
-  });
-
-  let markers=[];
-
-  function rebuildMarkers(){
-
-    markers.forEach(m=>m.remove());
-    markers=[];
-
-    const nodes = table.rows({page:'current'}).nodes().toArray();
-
-    let i=1;
-
-    $(nodes).each(function(){
-
-      const lon = parseFloat($(this).data('lon'));
-      const lat = parseFloat($(this).data('lat'));
-      const row = table.row(this).data();
-
-      $(this).find('td:eq(0)').text(i);
-
-      if(isNaN(lon)||isNaN(lat)){ i++; return; }
-
-      const night = String(row[2]||'').toLowerCase().includes('yes');
-
-      const el=document.createElement('div');
-      el.className='marker'+(night?' night':'');
-      el.textContent=i;
-
-      markers.push(
-        new maplibregl.Marker({element:el})
-          .setLngLat([lon,lat])
-          .addTo(map)
-      );
-
-      i++;
-    });
-  }
-
-  table.on('draw.dt', rebuildMarkers);
-
-  map.on('load', rebuildMarkers);
-
-  function resizeFix(){
-    map.resize();
-    markers.forEach(m=>{
-      const p=m.getLngLat();
-      m.setLngLat(p);
-    });
-  }
-
-  let t;
-  window.addEventListener('resize',()=>{
-    clearTimeout(t);
-    t=setTimeout(resizeFix,120);
-  });
-
-  const ro=new ResizeObserver(resizeFix);
-  ro.observe(document.getElementById('map'));
-
+const table = $('#tbl').DataTable({
+  pageLength: 10,
+  lengthMenu: [10,25,50,100]
 });
+
+$('#searchBox').on('input', function(){
+  table.search(this.value).draw();
+});
+
+const map = new maplibregl.Map({
+  container:'map',
+  center: {{ map_center|tojson }},
+  zoom:11,
+  style:{
+    version:8,
+    sources:{
+      onemap:{
+        type:"raster",
+        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
+        tileSize:256
+      }
+    },
+    layers:[{id:'base',type:'raster',source:'onemap'}]
+  }
+});
+
+let markers=[];
+
+function rebuildMarkers(){
+
+  markers.forEach(m=>m.remove());
+  markers=[];
+
+  const nodes = table.rows({page:'current'}).nodes().toArray();
+
+  let i=1;
+
+  nodes.forEach(row=>{
+    const lon = parseFloat(row.dataset.lon);
+    const lat = parseFloat(row.dataset.lat);
+
+    row.cells[0].innerText = i;
+
+    if (!lon || !lat){ i++; return; }
+
+    const el=document.createElement('div');
+    el.className='marker';
+    el.innerText=i;
+
+    markers.push(
+      new maplibregl.Marker({element:el})
+        .setLngLat([lon,lat])
+        .addTo(map)
+    );
+
+    i++;
+  });
+}
+
+table.on('draw.dt', rebuildMarkers);
+map.on('load', rebuildMarkers);
+
 </script>
 
 </body>
