@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ Correct stylesheet load (prevents '/static/style.css' showing as text) -->
+  <!-- ✅ Stylesheet -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- ✅ MapLibre (proper tags; prevents URLs printing as text) -->
+  <!-- ✅ MapLibre -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-  <!-- ✅ DataTables + jQuery -->
+  <!-- ✅ DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
@@ -26,7 +26,6 @@
       overflow: hidden;
     }
 
-    /* Marker circle with table numbering inside */
     .marker {
       width: 24px;
       height: 24px;
@@ -38,24 +37,26 @@
       user-select: none;
       cursor: pointer;
 
-      background: rgba(239,68,68,0.95); /* default fill: red */
-      color: #ffffff;                  /* default number: white */
+      background: rgba(251,146,60,0.95); /* ✅ DEFAULT = ORANGE */
+      color: #ffffff;
       border: 2px solid rgba(255,255,255,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       position: relative;
     }
 
-    /* Night parking fill colours */
+    /* ✅ Night parking */
     .marker.blue { background: rgba(59,130,246,0.95) !important; }
-    .marker.red  { background: rgba(239,68,68,0.95) !important; }
 
-    /* JTC styling: pink ring + pink number, keep fill colours */
+    /* ✅ NO night parking → ORANGE */
+    .marker.red  { background: rgba(251,146,60,0.95) !important; }
+
+    /* ✅ JTC styling */
     .marker.jtc {
       border-color: #ec4899 !important;
       color: #f472b6 !important;
     }
 
-    /* Availability label OUTSIDE marker (below), only if data-avail non-empty */
+    /* Availability label */
     .marker[data-avail]:not([data-avail=""])::after {
       content: attr(data-avail);
       position: absolute;
@@ -68,321 +69,7 @@
       font-weight: 800;
       white-space: nowrap;
       line-height: 14px;
-      pointer-events: none;
-      border: 1px solid rgba(255,255,255,0.25);
-      color: #ffffff;
+      color: #fff;
       background: rgba(0,0,0,0.65);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.30);
     }
 
-    /* Hide label completely if no availability info */
-    .marker[data-avail=""]::after { display: none; }
-
-    /* Color-coding: label background changes by availability level */
-    .marker.avail-green::after { background: rgba(34,197,94,0.85) !important; }   /* green */
-    .marker.avail-amber::after { background: rgba(245,158,11,0.90) !important; }  /* amber */
-    .marker.avail-red::after   { background: rgba(239,68,68,0.90) !important; }   /* red */
-
-    /* Make labels readable in light mode too */
-    @media (prefers-color-scheme: light) {
-      .marker[data-avail]:not([data-avail=""])::after {
-        color: #111827;
-        border: 1px solid rgba(17,24,39,0.15);
-      }
-      .marker.avail-green::after { background: rgba(187,247,208,0.95) !important; } /* light green */
-      .marker.avail-amber::after { background: rgba(254,243,199,0.98) !important; } /* light amber */
-      .marker.avail-red::after   { background: rgba(254,202,202,0.98) !important; } /* light red */
-    }
-
-    tr.row-selected td {
-      background: rgba(96,165,250,0.18) !important;
-    }
-  </style>
-</head>
-
-<body>
-<div class="container">
-
-  <h1>{{ app_title }}</h1>
-  <div class="banner">Dataset: {{ resource_id }}</div>
-
-  <div class="meta">
-    <span><strong>Last fetched:</strong> {{ fetched_at }}</span>
-    <span><strong>Total records:</strong> {{ total_ckan }}</span>
-  </div>
-
-  <!-- Server-side filter -->
-  <form method="get" class="filter">
-    <input type="text" name="q" value="{{ q }}" placeholder="Server-side contains filter">
-    <button type="submit">Apply server filter</button>
-    /?refresh=1{% if q %}&q={{ q }}{% endif %}Refresh cache</a>
-    /download.csv{% if q %}?q={{ q }}{% endif %}Download CSV</a>
-  </form>
-
-  <!-- Client-side search -->
-  <div class="searchbar">
-    <label>Search:</label>
-    <input id="dtSearch" type="text" placeholder="Search within table (client-side)">
-    <button id="clearSearch" type="button">Clear</button>
-  </div>
-
-  <div class="legend">
-    Marker label shows availability types: <strong>C/H/Y</strong> as <strong>available/total</strong> (only if present). &nbsp;•&nbsp;
-    Label color indicates availability level (green/amber/red). &nbsp;•&nbsp;
-    Fill: 🔵 Night parking | 🔴 No night parking &nbsp;•&nbsp;
-    Dataset: 🟣 JTC | ⚪ HDB
-  </div>
-
-  <div id="map"></div>
-
-  <h2>Carpark Data</h2>
-
-  <table id="carparkTable" class="display">
-    <thead>
-      <tr>
-        <th data-colkey="_rownum">#</th>
-        <th data-colkey="_geo">Geocoded</th>
-
-        {% for c in column_keys %}
-          {% if c == lon_t_key %}
-            <th data-colkey="{{ c }}">Longitude (Translated)</th>
-          {% elif c == lat_t_key %}
-            <th data-colkey="{{ c }}">Latitude (Translated)</th>
-          {% else %}
-            <th data-colkey="{{ c }}">{{ c.replace('_',' ') | title }}</th>
-          {% endif %}
-        {% endfor %}
-      </tr>
-    </thead>
-
-    <tbody>
-      {% for r in rows %}
-      <tr data-rowid="{{ loop.index0 }}">
-        <td class="col-rownum"></td>
-        <td class="col-geo"></td>
-        {% for c in column_keys %}
-          <td>{{ r.get(c, "") }}</td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-</div>
-
-<script>
-$(function () {
-  if (typeof maplibregl === 'undefined') {
-    console.error('MapLibre failed to load. Check MapLibre <script> tag.');
-    return;
-  }
-
-  const table = $('#carparkTable').DataTable({
-    pageLength: 10,
-    lengthMenu: [10, 25, 50, 100],
-    scrollX: true,
-    searching: true,
-    deferRender: true,
-    dom: 'lrtip'
-  });
-
-  $('#dtSearch').on('input', e => table.search(e.target.value || '').draw());
-  $('#clearSearch').on('click', () => table.search('').draw());
-
-  // stable colkey -> column index mapping
-  const colKeyToIndex = {};
-  $('#carparkTable thead th').each(function(i){
-    const k = $(this).attr('data-colkey');
-    if (k) colKeyToIndex[k] = i;
-  });
-
-  const map = new maplibregl.Map({
-    container: 'map',
-    center: {{ map_center | tojson }},
-    zoom: 12,
-    style: {
-      version: 8,
-      sources: {
-        onemap: {
-          type: 'raster',
-          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© Singapore Land Authority'
-        }
-      },
-      layers: [{ id:'base', type:'raster', source:'onemap' }]
-    }
-  });
-
-  map.addControl(new maplibregl.NavigationControl());
-
-  function norm(v){ return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
-
-  function findCol(pred){
-    let idx = -1;
-    $('#carparkTable thead th').each(function(i){
-      const k = norm($(this).attr('data-colkey') || $(this).text());
-      if (pred(k)) idx = i;
-    });
-    return idx;
-  }
-
-  // night + dataset
-  const getNightIdx = () => findCol(k => k.includes('night') && k.includes('parking'));
-  const getSrcIdx   = () => findCol(k => (k === 'datasource') || (k.includes('data') && k.includes('source')));
-
-  // availability cols (C/H/Y)
-  const getAvailC = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('c'));
-  const getTotalC = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('c'));
-  const getAvailH = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('h'));
-  const getTotalH = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('h'));
-  const getAvailY = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('y'));
-  const getTotalY = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('y'));
-
-  function isNight(val){
-    const v = norm(val);
-    return ['yes','y','true','t','1'].includes(v) || v.includes('night') || v.includes('available');
-  }
-
-  function isJtc(val){ return norm(val) === 'jtc'; }
-
-  function parseIntSafe(x){
-    if (x === null || x === undefined) return null;
-    const s = String(x).trim();
-    if (!s) return null;
-    const n = Number(s);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  // Build label "C a/t • H a/t • Y a/t" and compute a ratio for color coding
-  function buildAvailLabelAndRatio(row){
-    const parts = [];
-    const ratios = [];
-
-    function addPart(letter, aIdx, tIdx){
-      if (aIdx < 0 || tIdx < 0) return;
-      const a = parseIntSafe(row[aIdx]);
-      const t = parseIntSafe(row[tIdx]);
-      if (a === null || t === null || t <= 0) return;
-      parts.push(`${letter} ${a}/${t}`);
-      ratios.push(a / t);
-    }
-
-    addPart('C', getAvailC(), getTotalC());
-    addPart('H', getAvailH(), getTotalH());
-    addPart('Y', getAvailY(), getTotalY());
-
-    if (parts.length === 0) {
-      return { label: "", ratio: null };
-    }
-
-    // Use Cars ratio if present, else average of available ratios
-    let ratio = null;
-    const cAi = getAvailC(), cTi = getTotalC();
-    if (cAi >= 0 && cTi >= 0) {
-      const ca = parseIntSafe(row[cAi]);
-      const ct = parseIntSafe(row[cTi]);
-      if (ca !== null && ct !== null && ct > 0) ratio = ca / ct;
-    }
-    if (ratio === null && ratios.length > 0) {
-      ratio = ratios.reduce((s,v)=>s+v,0) / ratios.length;
-    }
-
-    return { label: parts.join(" • "), ratio };
-  }
-
-  function availLevelClass(ratio){
-    if (ratio === null || !Number.isFinite(ratio)) return "";
-    // thresholds: >=20% green, >=5% amber, else red
-    if (ratio >= 0.20) return "avail-green";
-    if (ratio >= 0.05) return "avail-amber";
-    return "avail-red";
-  }
-
-  function highlightRow(rowId){
-    $('#carparkTable tbody tr').removeClass('row-selected');
-    $('#carparkTable tbody tr[data-rowid="' + rowId + '"]').addClass('row-selected');
-  }
-
-  function panTo(lon, lat){
-    map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 15) });
-  }
-
-  let markers = [];
-
-  function clearMarkers(){
-    markers.forEach(m => m.remove());
-    markers = [];
-  }
-
-  function rebuildMarkers(){
-    clearMarkers();
-
-    const lonI = colKeyToIndex['{{ lon_t_key }}'];
-    const latI = colKeyToIndex['{{ lat_t_key }}'];
-    const nI = getNightIdx();
-    const sI = getSrcIdx();
-
-    if (lonI === undefined || latI === undefined) {
-      console.warn('Translated lon/lat columns not found.');
-      return;
-    }
-
-    const bounds = new maplibregl.LngLatBounds();
-    let n = 1;
-
-    table.rows({page:'current'}).every(function(){
-      const row = this.data();
-      const tr = this.node();
-      const rowId = $(tr).attr('data-rowid');
-
-      $(tr).find('.col-rownum').text(n);
-
-      const lon = parseFloat(row[lonI]);
-      const lat = parseFloat(row[latI]);
-      if (isNaN(lon) || isNaN(lat)) {
-        $(tr).find('.col-geo').text('⚠️');
-        n++;
-        return;
-      }
-      $(tr).find('.col-geo').text('✅');
-
-      const night = (nI >= 0) ? isNight(row[nI]) : false;
-      const jtc   = (sI >= 0) ? isJtc(row[sI]) : false;
-
-      const av = buildAvailLabelAndRatio(row);
-      const levelCls = availLevelClass(av.ratio);
-
-      // ✅ Swap: number inside marker, availability outside (below) via data-avail
-      const el = document.createElement('div');
-      el.className = 'marker ' + (night ? 'blue' : 'red') + (jtc ? ' jtc' : '') + (levelCls ? (' ' + levelCls) : '');
-      el.textContent = String(n);
-      el.setAttribute('data-avail', av.label);  // empty string => label not shown
-
-      const mk = new maplibregl.Marker({ element: el })
-        .setLngLat([lon, lat])
-        .addTo(map);
-
-      el.addEventListener('click', function(){
-        highlightRow(rowId);
-        panTo(lon, lat);
-      });
-
-      markers.push(mk);
-      bounds.extend([lon, lat]);
-      n++;
-    });
-
-    if (markers.length > 0) {
-      map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
-    }
-  }
-
-  table.on('draw', rebuildMarkers);
-  map.on('load', rebuildMarkers);
-
-});
-</script>
-
-</body>
-</html>
