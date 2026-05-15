@@ -4,10 +4,16 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
+<!-- ✅ Correct CSS -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 
+<!-- ✅ MapLibre -->
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+<!-- DataTables -->
+<link rel="stylesheet"
+ href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
@@ -17,26 +23,44 @@
 .marker{
   width:24px;height:24px;border-radius:50%;
   display:grid;place-items:center;font-weight:800;
-  color:#fff;background:#fb923c;
-  border:2px solid #fff;position:relative;
+  font-size:12px;
+
+  background:#fb923c; /* 🟠 default: no night */
+  color:#fff;
+  border:2px solid #fff;
+  position:relative;
 }
 
-.marker.blue{background:#3b82f6}
-.marker.jtc{border-color:#ec4899;color:#f472b6}
+/* night parking */
+.marker.blue { background:#3b82f6 !important }
 
+/* JTC styling */
+.marker.jtc{
+  border-color:#ec4899 !important;
+  color:#f472b6 !important;
+}
+
+/* availability label */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
-  position:absolute;top:26px;left:50%;
+  position:absolute;
+  top:26px;left:50%;
   transform:translateX(-50%);
-  font-size:10px;padding:2px 6px;border-radius:6px;
-  background:#111;color:#fff;
+  font-size:10px;
+  padding:2px 6px;
+  border-radius:6px;
+  color:#fff;
+  white-space:nowrap;
 }
 
-.marker.avail-green::after{background:#22c55e}
-.marker.avail-amber::after{background:#f59e0b}
-.marker.avail-red::after{background:#ef4444}
+/* hide if empty */
+.marker[data-avail=""]::after{ display:none }
 
-.marker[data-avail=""]::after{display:none}
+/* availability colours */
+.marker.avail-green::after{ background:#22c55e }
+.marker.avail-amber::after{ background:#f59e0b }
+.marker.avail-red::after{ background:#ef4444 }
+
 </style>
 </head>
 
@@ -87,64 +111,118 @@ const map=new maplibregl.Map({
         tileSize:256
       }
     },
-    layers:[{id:"base",type:"raster",source:"onemap"}]
+    layers:[{id:'base',type:'raster',source:'onemap'}]
   }
 });
 
-const table=$('#carparkTable').DataTable();
+const table = $('#carparkTable').DataTable();
 
+function norm(v){ return String(v||'').toLowerCase(); }
+
+function findCol(match){
+  let idx=-1;
+  $('#carparkTable thead th').each(function(i){
+    if(match(norm($(this).text()))) idx=i;
+  });
+  return idx;
+}
+
+const nightIdx=findCol(t=>t.includes('night'));
+const srcIdx=findCol(t=>t.includes('source'));
+
+const availC=findCol(t=>t.includes('available')&&t.includes('c'));
+const totalC=findCol(t=>t.includes('total')&&t.includes('c'));
+const availH=findCol(t=>t.includes('available')&&t.includes('h'));
+const totalH=findCol(t=>t.includes('total')&&t.includes('h'));
+const availY=findCol(t=>t.includes('available')&&t.includes('y'));
+const totalY=findCol(t=>t.includes('total')&&t.includes('y'));
+
+function buildAvail(row){
+  let parts=[],ratios=[];
+
+  function add(lbl,a,t){
+    if(a && t){
+      parts.push(lbl+" "+a+"/"+t);
+      ratios.push(a/t);
+    }
+  }
+
+  add("C",parseFloat(row[availC]),parseFloat(row[totalC]));
+  add("H",parseFloat(row[availH]),parseFloat(row[totalH]));
+  add("Y",parseFloat(row[availY]),parseFloat(row[totalY]));
+
+  if(parts.length===0) return {txt:"",r:null};
+
+  let r=ratios.reduce((a,b)=>a+b,0)/ratios.length;
+  return {txt:parts.join(" • "),r};
+}
+
+function level(r){
+  if(r==null) return "";
+  if(r>=0.2) return "avail-green";
+  if(r>=0.05) return "avail-amber";
+  return "avail-red";
+}
+
+// ✅ critical: custom markers (NOT default blue pins)
 let markers=[];
-
-// ✅ ALWAYS USE DOM DATA ATTRIBUTES (stable)
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
   markers=[];
 
-  let n=1;
+  let i=1;
 
   $('#carparkTable tbody tr:visible').each(function(){
 
-    const lon=parseFloat($(this).attr('data-lon'));
-    const lat=parseFloat($(this).attr('data-lat'));
+    const lon=parseFloat($(this).data('lon'));
+    const lat=parseFloat($(this).data('lat'));
 
     if(isNaN(lon)||isNaN(lat)) return;
 
+    const row=table.row(this).data();
+
+    const night = nightIdx>=0 && norm(row[nightIdx]).includes('yes');
+    const jtc   = srcIdx>=0 && norm(row[srcIdx])==='jtc';
+
+    const av=buildAvail(row);
+
     const el=document.createElement('div');
-    el.className='marker';
-    el.textContent=n;
+    el.className="marker "+(night?"blue":"")+" "+(jtc?"jtc":"")+" "+level(av.r);
+    el.innerText=i;
+    el.setAttribute('data-avail',av.txt);
 
     markers.push(
-      new maplibregl.Marker(el)
+      new maplibregl.Marker({element:el}) // ✅ THIS FIXES BLUE PIN ISSUE
         .setLngLat([lon,lat])
         .addTo(map)
     );
 
-    n++;
+    i++;
   });
 }
 
-// ✅ INIT
+// init
 map.on('load', rebuildMarkers);
 table.on('draw', rebuildMarkers);
 
-// ✅ RESIZE FIX (NO DRIFT)
+// ✅ resize fix (NO drifting)
 function handleResize(){
   map.resize();
-  rebuildMarkers();   // ✅ now uses stable coords
+  rebuildMarkers();
 }
 
-let resizeTimer;
-
-window.addEventListener('resize', function(){
-  clearTimeout(resizeTimer);
-  resizeTimer=setTimeout(handleResize,150);
+let t;
+window.addEventListener('resize', ()=>{
+  clearTimeout(t);
+  t=setTimeout(handleResize,150);
 });
 
-const ro = new ResizeObserver(() => {
-  handleResize();
-});
+const ro=new ResizeObserver(handleResize);
 ro.observe(document.getElementById('map'));
+
+// auto-refresh
+setInterval(()=>location.reload(),60000);
 
 });
 </script>
