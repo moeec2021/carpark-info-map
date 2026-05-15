@@ -4,102 +4,68 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
-<!-- ✅ Correct CSS -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-<!-- ✅ MapLibre -->
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-<!-- ✅ DataTables -->
-<link rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
 <style>
-#map {
-  height: 480px;
-  width: 100%;
-  border-radius: 12px;
-  margin: 12px 0;
+#map { height:480px; margin:12px 0 }
+
+.marker{
+  width:24px;height:24px;border-radius:50%;
+  display:grid;place-items:center;font-weight:800;
+  color:#fff;background:#fb923c;
+  border:2px solid #fff;position:relative;
 }
 
-/* Marker */
-.marker {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  font-weight: 800;
-  color: #fff;
+.marker.blue{background:#3b82f6}
+.marker.jtc{border-color:#ec4899;color:#f472b6}
 
-  background: rgba(251,146,60,0.95); /* ORANGE */
-  border: 2px solid rgba(255,255,255,0.9);
-  position: relative;
+.marker[data-avail]:not([data-avail=""])::after{
+  content:attr(data-avail);
+  position:absolute;top:26px;left:50%;
+  transform:translateX(-50%);
+  font-size:10px;padding:2px 6px;border-radius:6px;
+  background:#111;color:#fff;
 }
 
-/* Night parking */
-.marker.blue { background: rgba(59,130,246,0.95) !important; }
+.marker.avail-green::after{background:#22c55e}
+.marker.avail-amber::after{background:#f59e0b}
+.marker.avail-red::after{background:#ef4444}
 
-/* JTC */
-.marker.jtc {
-  border-color: #ec4899 !important;
-  color: #f472b6 !important;
-}
-
-/* Availability label */
-.marker[data-avail]:not([data-avail=""])::after {
-  content: attr(data-avail);
-  position: absolute;
-  top: 26px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  color: #fff;
-  white-space: nowrap;
-}
-
-/* Hide if no data */
-.marker[data-avail=""]::after {
-  display: none;
-}
-
-/* Color coding */
-.marker.avail-green::after { background:#22c55e; }
-.marker.avail-amber::after { background:#f59e0b; }
-.marker.avail-red::after   { background:#ef4444; }
-
+.marker[data-avail=""]::after{display:none}
 </style>
 </head>
 
 <body>
 
-<h1>{{ app_title }}</h1>
+<h2>{{ app_title }}</h2>
 
 <div id="map"></div>
 
-<table id="carparkTable" class="display">
+<table id="carparkTable">
 <thead>
 <tr>
-  <th>#</th>
-  {% for c in column_keys %}
-    <th>{{ c }}</th>
-  {% endfor %}
+<th>#</th>
+{% for c in column_keys %}
+<th>{{ c }}</th>
+{% endfor %}
 </tr>
 </thead>
 
 <tbody>
 {% for r in rows %}
-<tr>
-  <td>{{ loop.index }}</td>
-  {% for c in column_keys %}
-    <td>{{ r.get(c,"") }}</td>
-  {% endfor %}
+<tr
+  data-lon="{{ r.get(lon_t_key,'') }}"
+  data-lat="{{ r.get(lat_t_key,'') }}"
+>
+<td>{{ loop.index }}</td>
+{% for c in column_keys %}
+<td>{{ r.get(c,"") }}</td>
+{% endfor %}
 </tr>
 {% endfor %}
 </tbody>
@@ -108,110 +74,48 @@
 <script>
 $(function(){
 
-if (typeof maplibregl === 'undefined') {
-  console.error("MapLibre not loaded");
-  return;
-}
-
-const table = $('#carparkTable').DataTable({
-  pageLength: 10
-});
-
-const map = new maplibregl.Map({
-  container: 'map',
-  center: {{ map_center|tojson }},
-  zoom: 12,
-  style: {
-    version: 8,
-    sources: {
-      onemap: {
-        type: "raster",
-        tiles: ["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
-        tileSize: 256
+const map=new maplibregl.Map({
+  container:'map',
+  center:{{ map_center|tojson }},
+  zoom:12,
+  style:{
+    version:8,
+    sources:{
+      onemap:{
+        type:"raster",
+        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
+        tileSize:256
       }
     },
-    layers: [{ id:"base", type:"raster", source:"onemap" }]
+    layers:[{id:"base",type:"raster",source:"onemap"}]
   }
 });
 
-function norm(v){ return String(v||'').toLowerCase(); }
-
-function findCol(match){
-  let idx=-1;
-  $('#carparkTable thead th').each(function(i){
-    if(match(norm($(this).text()))) idx=i;
-  });
-  return idx;
-}
-
-const lonIdx = findCol(t=>t.includes('longitude'));
-const latIdx = findCol(t=>t.includes('latitude'));
-const srcIdx = findCol(t=>t.includes('source'));
-const nightIdx = findCol(t=>t.includes('night'));
-
-const availC = findCol(t=>t.includes('available') && t.includes('c'));
-const totalC = findCol(t=>t.includes('total') && t.includes('c'));
-const availH = findCol(t=>t.includes('available') && t.includes('h'));
-const totalH = findCol(t=>t.includes('total') && t.includes('h'));
-const availY = findCol(t=>t.includes('available') && t.includes('y'));
-const totalY = findCol(t=>t.includes('total') && t.includes('y'));
-
-function buildAvailability(row){
-  let parts=[];
-  let ratios=[];
-
-  function add(label,a,t){
-    if(a && t){
-      parts.push(label+" "+a+"/"+t);
-      ratios.push(a/t);
-    }
-  }
-
-  add("C", parseFloat(row[availC]), parseFloat(row[totalC]));
-  add("H", parseFloat(row[availH]), parseFloat(row[totalH]));
-  add("Y", parseFloat(row[availY]), parseFloat(row[totalY]));
-
-  if(parts.length===0) return {text:"",ratio:null};
-
-  let r=ratios.length?ratios.reduce((a,b)=>a+b,0)/ratios.length:null;
-  return {text:parts.join(" • "),ratio:r};
-}
-
-function levelClass(r){
-  if(r===null) return "";
-  if(r>=0.2) return "avail-green";
-  if(r>=0.05) return "avail-amber";
-  return "avail-red";
-}
+const table=$('#carparkTable').DataTable();
 
 let markers=[];
 
+// ✅ ALWAYS USE DOM DATA ATTRIBUTES (stable)
 function rebuildMarkers(){
+
   markers.forEach(m=>m.remove());
   markers=[];
 
   let n=1;
 
-  table.rows({page:'current'}).every(function(){
-    const row=this.data();
+  $('#carparkTable tbody tr:visible').each(function(){
 
-    const lon=parseFloat(row[lonIdx]);
-    const lat=parseFloat(row[latIdx]);
+    const lon=parseFloat($(this).attr('data-lon'));
+    const lat=parseFloat($(this).attr('data-lat'));
+
     if(isNaN(lon)||isNaN(lat)) return;
 
-    const night = nightIdx>=0 && norm(row[nightIdx]).includes('yes');
-    const jtc   = srcIdx>=0 && norm(row[srcIdx])==='jtc';
-
-    const av = buildAvailability(row);
-    const lvl = levelClass(av.ratio);
-
     const el=document.createElement('div');
-    el.className = "marker "+(night?"blue":"")+" "+(jtc?"jtc":"")+" "+lvl;
+    el.className='marker';
     el.textContent=n;
-    el.setAttribute('data-avail', av.text);
 
     markers.push(
-      new maplibregl.Marker({element:el})
+      new maplibregl.Marker(el)
         .setLngLat([lon,lat])
         .addTo(map)
     );
@@ -220,35 +124,27 @@ function rebuildMarkers(){
   });
 }
 
-// ✅ INITIAL
+// ✅ INIT
 map.on('load', rebuildMarkers);
 table.on('draw', rebuildMarkers);
 
-// ✅ ✅ MAP RESIZE FIX (YOUR REQUEST)
-
-function handleMapResize(){
+// ✅ RESIZE FIX (NO DRIFT)
+function handleResize(){
   map.resize();
-  rebuildMarkers();
+  rebuildMarkers();   // ✅ now uses stable coords
 }
 
-// window resize
 let resizeTimer;
+
 window.addEventListener('resize', function(){
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(handleMapResize, 150);
+  resizeTimer=setTimeout(handleResize,150);
 });
 
-// container resize
 const ro = new ResizeObserver(() => {
-  handleMapResize();
+  handleResize();
 });
 ro.observe(document.getElementById('map'));
-
-// ✅ SAFETY trigger after load
-setTimeout(handleMapResize, 300);
-
-// ✅ AUTO REFRESH (60s)
-setInterval(()=>location.reload(),60000);
 
 });
 </script>
