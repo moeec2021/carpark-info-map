@@ -4,14 +4,11 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- MapLibre -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-  <!-- DataTables + jQuery -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
@@ -26,7 +23,12 @@
       overflow: hidden;
     }
 
-    /* Marker circle with table numbering inside */
+    /* Smooth marker motion on resize/pan/zoom */
+    .maplibregl-marker {
+      transition: transform 180ms ease-out;
+      will-change: transform;
+    }
+
     .marker {
       width: 24px;
       height: 24px;
@@ -38,24 +40,21 @@
       user-select: none;
       cursor: pointer;
 
-      /* Default = ORANGE (no night parking) */
-      background: rgba(251,146,60,0.95);
+      background: rgba(251,146,60,0.95); /* orange = no-night */
       color: #ffffff;
       border: 2px solid rgba(255,255,255,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       position: relative;
     }
 
-    /* Night parking fill colour */
     .marker.night { background: rgba(59,130,246,0.95) !important; }
 
-    /* JTC styling: pink ring + pink number */
     .marker.jtc {
       border-color: #ec4899 !important;
       color: #f472b6 !important;
     }
 
-    /* Availability label OUTSIDE marker (below), only if non-empty */
+    /* Availability outside marker, hide if empty */
     .marker[data-avail]:not([data-avail=""])::after {
       content: attr(data-avail);
       position: absolute;
@@ -76,7 +75,6 @@
     }
     .marker[data-avail=""]::after { display: none; }
 
-    /* Label colour coding by availability level */
     .marker.avail-green::after { background: rgba(34,197,94,0.85) !important; }
     .marker.avail-amber::after { background: rgba(245,158,11,0.90) !important; }
     .marker.avail-red::after   { background: rgba(239,68,68,0.90) !important; }
@@ -87,8 +85,8 @@
 
 <body>
 <div class="container">
-
   <h1>{{ app_title }}</h1>
+
   <div class="banner">Dataset: {{ resource_id }}</div>
 
   <div class="meta">
@@ -110,8 +108,8 @@
   </div>
 
   <div class="legend">
-    Availability label shows <strong>C/H/Y</strong> as <strong>available/total</strong> (only when present). &nbsp;•&nbsp;
-    Fill: 🔵 Night parking | 🟠 No night parking &nbsp;•&nbsp;
+    Availability shows <strong>C/H/Y</strong> as <strong>available/total</strong> (hidden if none). &nbsp;•&nbsp;
+    Fill: 🔵 Night | 🟠 No night &nbsp;•&nbsp;
     Dataset: 🟣 JTC (pink ring+number) | ⚪ HDB
   </div>
 
@@ -133,7 +131,6 @@
         {% endfor %}
       </tr>
     </thead>
-
     <tbody>
       {% for r in rows %}
       <tr data-rowid="{{ loop.index0 }}"
@@ -148,7 +145,6 @@
       {% endfor %}
     </tbody>
   </table>
-
 </div>
 
 <script>
@@ -180,8 +176,7 @@ $(function () {
         onemap: {
           type: 'raster',
           tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© Singapore Land Authority'
+          tileSize: 256
         }
       },
       layers: [{ id:'base', type:'raster', source:'onemap' }]
@@ -191,7 +186,6 @@ $(function () {
   map.addControl(new maplibregl.NavigationControl());
 
   function norm(v){ return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
-
   function findCol(pred){
     let idx = -1;
     $('#carparkTable thead th').each(function(i){
@@ -204,12 +198,12 @@ $(function () {
   const nightIdx = () => findCol(k => k.includes('night') && k.includes('parking'));
   const srcIdx   = () => findCol(k => (k === 'datasource') || (k.includes('data') && k.includes('source')));
 
-  const getAvailC = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('c'));
-  const getTotalC = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('c'));
-  const getAvailH = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('h'));
-  const getTotalH = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('h'));
-  const getAvailY = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('y'));
-  const getTotalY = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('y'));
+  const aC = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('c'));
+  const tC = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('c'));
+  const aH = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('h'));
+  const tH = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('h'));
+  const aY = () => findCol(k => k.includes('lots') && k.includes('available') && k.endsWith('y'));
+  const tY = () => findCol(k => k.includes('total') && k.includes('lots') && k.endsWith('y'));
 
   function isNight(val){
     const v = norm(val);
@@ -229,61 +223,57 @@ $(function () {
     const parts = [];
     const ratios = [];
 
-    function add(letter, aIdx, tIdx){
-      if (aIdx < 0 || tIdx < 0) return;
-      const a = parseNum(row[aIdx]);
-      const t = parseNum(row[tIdx]);
-      if (a === null || t === null || t <= 0) return;
-      parts.push(`${letter} ${a}/${t}`);
-      ratios.push(a / t);
+    function add(letter, ai, ti){
+      if (ai < 0 || ti < 0) return;
+      const av = parseNum(row[ai]);
+      const tot = parseNum(row[ti]);
+      if (av === null || tot === null || tot <= 0) return;
+      parts.push(`${letter} ${av}/${tot}`);
+      ratios.push(av / tot);
     }
 
-    add('C', getAvailC(), getTotalC());
-    add('H', getAvailH(), getTotalH());
-    add('Y', getAvailY(), getTotalY());
+    add('C', aC(), tC());
+    add('H', aH(), tH());
+    add('Y', aY(), tY());
 
     if (parts.length === 0) return { label: "", ratio: null };
 
-    // Prefer Cars ratio; else average
     let ratio = null;
-    const ca = parseNum(row[getAvailC()]);
-    const ct = parseNum(row[getTotalC()]);
-    if (ca !== null && ct !== null && ct > 0) ratio = ca / ct;
+    const cav = parseNum(row[aC()]);
+    const ctot = parseNum(row[tC()]);
+    if (cav !== null && ctot !== null && ctot > 0) ratio = cav / ctot;
     if (ratio === null && ratios.length > 0) ratio = ratios.reduce((s,v)=>s+v,0)/ratios.length;
 
     return { label: parts.join(" • "), ratio };
   }
 
-  function levelClass(ratio){
-    if (ratio === null || !Number.isFinite(ratio)) return "";
-    if (ratio >= 0.20) return "avail-green";
-    if (ratio >= 0.05) return "avail-amber";
+  function levelClass(r){
+    if (r === null || !Number.isFinite(r)) return "";
+    if (r >= 0.20) return "avail-green";
+    if (r >= 0.05) return "avail-amber";
     return "avail-red";
   }
 
   let markers = [];
-  let suppressFitOnce = false;
+  let markerMeta = []; // parallel array of marker DOM for quick updates
 
   function clearMarkers(){
     markers.forEach(m => m.remove());
     markers = [];
+    markerMeta = [];
   }
 
-  function rebuildMarkers(opts){
-    const fit = opts && opts.fit;
+  function rebuildMarkers(){
     clearMarkers();
 
     const nI = nightIdx();
     const sI = srcIdx();
 
-    const bounds = new maplibregl.LngLatBounds();
     let n = 1;
-
     const nodes = table.rows({ page: 'current' }).nodes();
 
     $(nodes).each(function(){
       const tr = this;
-
       const lon = parseFloat($(tr).attr('data-lon'));
       const lat = parseFloat($(tr).attr('data-lat'));
       if (isNaN(lon) || isNaN(lat)) { n++; return; }
@@ -306,47 +296,62 @@ $(function () {
         .addTo(map);
 
       markers.push(mk);
-      bounds.extend([lon, lat]);
+      markerMeta.push({ marker: mk, el: el });
       n++;
     });
-
-    // Only fit when requested, and never during resize-induced draws
-    if (fit && !suppressFitOnce && markers.length > 0) {
-      map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
-    }
-    suppressFitOnce = false;
   }
 
-  // Resize handling: ONLY resize map (do not refit / rebuild)
-  function handleMapResize(){
-    suppressFitOnce = true;     // if a draw fires because layout changed, do not fitBounds
-    map.resize();               // keep markers stable
-    map.triggerRepaint();
+  // Smooth re-anchor on resize without rebuild (prevents “jump”)
+  function smoothReanchorMarkers(){
+    // Two animation frames ensures MapLibre has applied resize layout
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        for (const m of markers) {
+          const ll = m.getLngLat();
+          m.setLngLat(ll);
+        }
+        map.triggerRepaint();
+      });
+    });
+  }
+
+  function handleResize(){
+    map.resize();
+    smoothReanchorMarkers();
   }
 
   // Debounced window resize
   let resizeTimer = null;
-  window.addEventListener('resize', function(){
+  window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(handleMapResize, 150);
+    resizeTimer = setTimeout(handleResize, 120);
   });
 
-  // Container resize (sidebars / flex layouts)
-  const ro = new ResizeObserver(() => handleMapResize());
+  // Container resize (sidebars/flex)
+  const ro = new ResizeObserver(() => handleResize());
   ro.observe(document.getElementById('map'));
 
-  // Initial build
-  map.on('load', function(){
-    rebuildMarkers({fit: true});
+  // Auto-refresh availability every 60s (updates table + marker labels)
+  async function refreshAvailability(){
+    try {
+      const res = await fetch('/availability.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      // We don’t rebuild markers here; we update by forcing a table redraw,
+      // which triggers rebuildMarkers. Coordinates remain stable from data-* attributes.
+      table.draw(false);
+    } catch (e) {}
+  }
+
+  map.on('load', () => {
+    rebuildMarkers();
+    setInterval(refreshAvailability, {{ avail_ttl }} * 1000);
   });
 
-  // Normal redraws rebuild markers; fitBounds is ok here
-  table.on('draw', function(){
-    rebuildMarkers({fit: true});
+  table.on('draw', () => {
+    rebuildMarkers();
   });
 
 });
 </script>
-
 </body>
 </html>
