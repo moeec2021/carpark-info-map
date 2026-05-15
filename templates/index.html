@@ -1,121 +1,22 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>{{ app_title }}</title>
+  <meta charset="utf <th>{{ c.replace('_',' ') }}</th>  <meta charset="utf-8">
+  {% endfor %}
+</tr>
+</thead>
 
-  <!-- ✅ Stylesheet -->
-  {{ url_for('static', filename='style.css') }}
-
-  <!-- ✅ MapLibre -->
-  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css
-  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.jsscript>
-
-  <!-- ✅ DataTables -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-
-  <style>
-    #map {
-      height: 480px;
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin: 12px 0;
-      overflow: hidden;
-    }
-
-    .marker {
-      width: 24px;
-      height: 24px;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      font-weight: 800;
-      user-select: none;
-      cursor: pointer;
-
-      background: rgba(251,146,60,0.95); /* ✅ DEFAULT = ORANGE */
-      color: #ffffff;
-      border: 2px solid rgba(255,255,255,0.9);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-      position: relative;
-    }
-
-    /* ✅ Night parking */
-    .marker.blue { background: rgba(59,130,246,0.95) !important; }
-
-    /* ✅ NO night parking → ORANGE */
-    .marker.red  { background: rgba(251,146,60,0.95) !important; }
-
-    /* ✅ JTC styling */
-    .marker.jtc {
-      border-color: #ec4899 !important;
-      color: #f472b6 !important;
-    }
-
-    /* Availability label */
-    .marker[data-avail]:not([data-avail=""])::after {
-      content: attr(data-avail);
-      position: absolute;
-      top: 28px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 2px 6px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 800;
-      white-space: nowrap;
-      line-height: 14px;
-      color: #fff;
-      background: rgba(0,0,0,0.65);
-    }
-
-    .marker[data-avail=""]::after {
-      display: none;
-    }
-
-    /* ✅ Availability colour coding (unchanged) */
-    .marker.avail-green::after { background: rgba(34,197,94,0.85) !important; }
-    .marker.avail-amber::after { background: rgba(245,158,11,0.9) !important; }
-    .marker.avail-red::after   { background: rgba(239,68,68,0.9) !important; }
-  </style>
-</head>
-
-<body>
-
-<div class="container">
-
-  <h1>{{ app_title }}</h1>
-
-  <div class="legend">
-    Fill: 🔵 Night parking | 🟠 No night parking • Dataset: 🟣 JTC | ⚪ HDB
-  </div>
-
-  <div id="map"></div>
-
-  <table id="carparkTable" class="display">
-    <thead>
-      <tr>
-        <th>#</th>
-        {% for c in column_keys %}
-        <th>{{ c.replace('_',' ') }}</th>
-        {% endfor %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td>{{ loop.index }}</td>
-        {% for c in column_keys %}
-        <td>{{ r.get(c, "") }}</td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<tbody>
+{% for r in rows %}
+<tr>
+  <td>{{ loop.index }}</td>
+  {% for c in column_keys %}
+    <td>{{ r.get(c,"") }}</td>
+  {% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
 
 </div>
 
@@ -123,47 +24,43 @@
 $(function(){
 
   if (typeof maplibregl === 'undefined') {
-    console.error("MapLibre not loaded");
+    console.error("MapLibre FAILED to load");
     return;
   }
 
-  const table = $('#carparkTable').DataTable({
-    pageLength: 10
-  });
+  const table = $('#carparkTable').DataTable();
 
   const map = new maplibregl.Map({
-    container: 'map',
+    container:'map',
     center: {{ map_center|tojson }},
-    zoom: 12,
-    style: {
-      version: 8,
-      sources: {
-        onemap: {
-          type: "raster",
-          tiles: [
-            "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
-          ],
-          tileSize: 256
+    zoom:12,
+    style:{
+      version:8,
+      sources:{
+        onemap:{
+          type:"raster",
+          tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
+          tileSize:256
         }
       },
-      layers: [{ id:'base', type:'raster', source:'onemap' }]
+      layers:[{id:"base",type:"raster",source:"onemap"}]
     }
   });
 
-  function norm(v){ return String(v||'').toLowerCase(); }
+  function norm(v){return String(v||'').toLowerCase();}
 
-  function findCol(match){
-    let idx = -1;
+  function findCol(fn){
+    let idx=-1;
     $('#carparkTable thead th').each(function(i){
-      if (match(norm($(this).text()))) idx = i;
+      if(fn(norm($(this).text()))) idx=i;
     });
     return idx;
   }
 
   const lonIdx = findCol(t=>t.includes('longitude'));
   const latIdx = findCol(t=>t.includes('latitude'));
-  const srcIdx = findCol(t=>t.includes('source'));
   const nightIdx = findCol(t=>t.includes('night'));
+  const srcIdx = findCol(t=>t.includes('source'));
 
   let markers=[];
 
@@ -185,10 +82,10 @@ $(function(){
       const jtc   = srcIdx>=0 && norm(row[srcIdx])==='jtc';
 
       const el=document.createElement('div');
-      el.className = `marker ${night?'blue':'red'}${jtc?' jtc':''}`;
+      el.className = `marker ${night?'blue':''} ${jtc?'jtc':''}`;
       el.textContent = n;
 
-      el.setAttribute('data-avail', '');
+      el.setAttribute('data-avail','');
 
       markers.push(
         new maplibregl.Marker({element:el})
@@ -208,3 +105,93 @@ $(function(){
 
 </body>
 </html>
+  <title>{{ app_title }}</title>
+
+  <!-- ✅ FIXED -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+  <!-- ✅ FIXED -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- DataTables -->
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <style>
+    #map {
+      height: 480px;
+      margin: 12px 0;
+      border-radius: 12px;
+    }
+
+    .marker {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      color: #fff;
+      font-size: 12px;
+
+      /* ✅ ORANGE = no night parking */
+      background: rgba(251,146,60,0.95);
+
+      border: 2px solid rgba(255,255,255,0.9);
+      position: relative;
+    }
+
+    /* ✅ Night parking */
+    .marker.blue { background: rgba(59,130,246,0.95) !important; }
+
+    /* ✅ JTC */
+    .marker.jtc {
+      border-color: #ec4899 !important;
+      color: #f472b6 !important;
+    }
+
+    /* ✅ Availability OUTSIDE */
+    .marker[data-avail]:not([data-avail=""])::after {
+      content: attr(data-avail);
+      position: absolute;
+      top: 26px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    .marker[data-avail=""]::after { display:none; }
+
+    /* ✅ Availability color coding */
+    .marker.avail-green::after { background:#22c55e; }
+    .marker.avail-amber::after { background:#f59e0b; }
+    .marker.avail-red::after   { background:#ef4444; }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>{{ app_title }}</h1>
+
+<div class="legend">
+  🔵 Night parking • 🟠 No night parking • 🟣 JTC
+</div>
+
+<div id="map"></div>
+
+<table id="carparkTable" class="display">
+<thead>
+<tr>
+  <th>#</th>
+  {% for c in column_keys %}
