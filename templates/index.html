@@ -4,32 +4,22 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ Correct CSS include -->
+  <!-- ✅ Correct includes (no raw URLs!) -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 
-  <!-- ✅ MapLibre (proper tags) -->
-  <link rel="stylesheet"
-        href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
-  <!-- ✅ DataTables -->
   <link rel="stylesheet"
         href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-  <!-- ✅ Styling -->
   <style>
-    #map {
-      height: 480px;
-      width: 100%;
-      border-radius: 12px;
-      margin: 12px 0;
-    }
+    #map { height: 480px; margin: 12px 0; }
 
     .maplibregl-marker {
-      transition: transform 200ms ease-out;
+      transition: transform 180ms ease-out;
     }
 
     .marker {
@@ -40,19 +30,13 @@
       place-items: center;
       font-size: 12px;
       font-weight: 800;
-
+      color: white;
       background: #fb923c;
-      color: #fff;
-      border: 2px solid white;
+      border: 2px solid #fff;
       position: relative;
     }
 
     .marker.night { background: #3b82f6; }
-
-    .marker.jtc {
-      border-color: #ec4899;
-      color: #f472b6;
-    }
 
     .marker[data-avail]:not([data-avail=""])::after {
       content: attr(data-avail);
@@ -60,15 +44,15 @@
       top: 26px;
       left: 50%;
       transform: translateX(-50%);
+      background: black;
+      color: white;
       font-size: 10px;
       padding: 2px 6px;
       border-radius: 6px;
-      color: white;
-      background: #111;
       white-space: nowrap;
     }
 
-    .marker[data-avail=""]::after { display: none; }
+    .marker[data-avail=""]::after { display:none; }
   </style>
 </head>
 
@@ -78,42 +62,38 @@
 
 <div id="map"></div>
 
-<table id="carparkTable" class="display">
+<table id="tbl" class="display">
   <thead>
     <tr>
       <th>#</th>
-      {% for c in column_keys %}
-        <th>{{ c }}</th>
-      {% endfor %}
+      <th>Carpark</th>
+      <th>Night Parking</th>
     </tr>
   </thead>
-
   <tbody>
-    {% for r in rows %}
-    <tr
-      data-lon="{{ r.get(lon_t_key,'') }}"
-      data-lat="{{ r.get(lat_t_key,'') }}"
-    >
-      <td class="idx"></td>
-      {% for c in column_keys %}
-      <td>{{ r.get(c,"") }}</td>
-      {% endfor %}
+
+    <!-- ✅ DEMO DATA (replace later with backend rows) -->
+    <tr data-lon="103.851959" data-lat="1.29027">
+      <td></td><td>A1</td><td>YES</td>
     </tr>
-    {% endfor %}
+    <tr data-lon="103.8198" data-lat="1.3521">
+      <td></td><td>B2</td><td>NO</td>
+    </tr>
+
   </tbody>
 </table>
 
 <script>
 $(function(){
 
-  const table = $('#carparkTable').DataTable({
-    pageLength: 10
+  const table = $('#tbl').DataTable({
+    pageLength:10
   });
 
   const map = new maplibregl.Map({
     container:'map',
     center: {{ map_center|tojson }},
-    zoom:12,
+    zoom:11,
     style:{
       version:8,
       sources:{
@@ -134,44 +114,41 @@ $(function(){
     markers.forEach(m=>m.remove());
     markers=[];
 
-    let nodes = table.rows({page:'current'}).nodes();
+    const nodes = table.rows({page:'current'}).nodes().toArray();
 
     let i=1;
 
     $(nodes).each(function(){
 
-      const row = table.row(this).data();
-
       const lon = parseFloat($(this).data('lon'));
       const lat = parseFloat($(this).data('lat'));
+      const row = table.row(this).data();
 
-      $(this).find('.idx').text(i);
+      $(this).find('td:eq(0)').text(i);
 
-      if(isNaN(lon) || isNaN(lat)){
-        i++;
-        return;
-      }
+      if(isNaN(lon)||isNaN(lat)){ i++; return; }
+
+      const night = String(row[2]||'').toLowerCase().includes('yes');
 
       const el=document.createElement('div');
-      el.className='marker';
-      el.innerText=i;
+      el.className='marker'+(night?' night':'');
+      el.textContent=i;
 
-      const mk = new maplibregl.Marker({element:el})
-        .setLngLat([lon,lat])
-        .addTo(map);
+      markers.push(
+        new maplibregl.Marker({element:el})
+          .setLngLat([lon,lat])
+          .addTo(map)
+      );
 
-      markers.push(mk);
       i++;
     });
   }
 
-  // ✅ CRITICAL: update markers on ALL table changes
-  table.on('draw.dt page.dt length.dt search.dt order.dt', rebuildMarkers);
+  table.on('draw.dt', rebuildMarkers);
 
   map.on('load', rebuildMarkers);
 
-  // ✅ resize fix WITHOUT rebuilding
-  function handleResize(){
+  function resizeFix(){
     map.resize();
     markers.forEach(m=>{
       const p=m.getLngLat();
@@ -180,12 +157,12 @@ $(function(){
   }
 
   let t;
-  window.addEventListener('resize', ()=>{
+  window.addEventListener('resize',()=>{
     clearTimeout(t);
-    t=setTimeout(handleResize,150);
+    t=setTimeout(resizeFix,120);
   });
 
-  const ro=new ResizeObserver(handleResize);
+  const ro=new ResizeObserver(resizeFix);
   ro.observe(document.getElementById('map'));
 
 });
