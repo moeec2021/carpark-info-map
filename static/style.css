@@ -1,9 +1,5 @@
-/* Follow system theme */
-:root {
-  color-scheme: light dark;
-}
+:root { color-scheme: light dark; }
 
-/* Default (light) */
 :root {
   --bg: #ffffff;
   --fg: #111827;
@@ -13,7 +9,6 @@
   --inputbg: #ffffff;
 }
 
-/* Dark (system prefers dark) */
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0b0f14;
@@ -85,9 +80,7 @@ button {
   cursor: pointer;
 }
 
-button:hover {
-  filter: brightness(1.08);
-}
+button:hover { filter: brightness(1.08); }
 
 .link {
   color: #60a5fa;
@@ -95,33 +88,7 @@ button:hover {
   font-size: 13px;
 }
 
-.link:hover {
-  text-decoration: underline;
-}
-
-.toggles {
-  margin: 10px 0 6px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-}
-
-.toggles-title {
-  color: var(--muted);
-  font-size: 13px;
-  margin-right: 8px;
-}
-
-.toggles label {
-  font-size: 13px;
-  color: var(--fg);
-  user-select: none;
-}
+.link:hover { text-decoration: underline; }
 
 .legend {
   color: var(--muted);
