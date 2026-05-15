@@ -96,6 +96,5 @@ button:hover { filter: brightness(1.08); }
   margin-bottom: 6px;
 }
 
-/* DataTables */
 .dataTables_filter { display: none !important; }
 .dataTables_wrapper { color: var(--fg) !important; }
