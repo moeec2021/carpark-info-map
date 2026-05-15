@@ -9,24 +9,48 @@ from flask import Flask, render_template, request, Response, jsonify
 
 APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
 
+# CKAN (carpark info datasets)
 CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
 FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))
 MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
 HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
 
-# Data sources to merge
+# Data.gov.sg Transport API (availability)
+DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
+AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))  # recommended: call every minute [1](https://gccprod-my.sharepoint.com/personal/ernest_chung_acra_gov_sg/Documents/Downloads/CarparkAvailability%20(2).json?web=1)
+
+# Carpark info datasets to merge
 DATASETS = [
     {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
     {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
 ]
 
-# Normalised columns we will guarantee exist
+# Normalised / computed columns
 X_COL = "x_coord"
 Y_COL = "y_coord"
 LON_T = "longitude_translated"
 LAT_T = "latitude_translated"
 SRC_COL = "data_source"
+
+# Availability columns to add
+AVAIL_TS = "availability_timestamp"
+LOTS_AVAIL_C = "lots_available_C"
+TOTAL_LOTS_C = "total_lots_C"
+LOTS_AVAIL_H = "lots_available_H"
+TOTAL_LOTS_H = "total_lots_H"
+LOTS_AVAIL_S = "lots_available_S"
+TOTAL_LOTS_S = "total_lots_S"
+LOTS_AVAIL_Y = "lots_available_Y"
+TOTAL_LOTS_Y = "total_lots_Y"
+
+AVAIL_COLS = [
+    AVAIL_TS,
+    LOTS_AVAIL_C, TOTAL_LOTS_C,
+    LOTS_AVAIL_H, TOTAL_LOTS_H,
+    LOTS_AVAIL_S, TOTAL_LOTS_S,
+    LOTS_AVAIL_Y, TOTAL_LOTS_Y,
+]
 
 INTERNAL_KEYS = {"_id", "_full_text"}
 
@@ -40,8 +64,17 @@ _cache = {
     "rows": [],
 }
 
+_avail_cache = {
+    "expires_at": 0.0,
+    "timestamp": "",
+    # carpark_number -> { lot_type: (avail, total) }
+    "map": {},
+}
+
+
 def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
 
 def safe_float(v):
     if v is None:
@@ -56,8 +89,22 @@ def safe_float(v):
     except ValueError:
         return None
 
+
+def safe_int(v):
+    if v is None:
+        return None
+    s = str(v).strip()
+    if s == "":
+        return None
+    try:
+        return int(float(s))
+    except ValueError:
+        return None
+
+
 def datastore_search_url():
     return CKAN_ACTION_BASE.rstrip("/") + "/datastore_search"
+
 
 def find_key_case_insensitive(keys, candidates):
     lk = {k.lower(): k for k in keys}
@@ -67,14 +114,8 @@ def find_key_case_insensitive(keys, candidates):
             return hit
     return None
 
-# SVY21 (EPSG:3414) inverse Transverse Mercator -> WGS84 lon/lat (EPSG:4326)
-# Parameters:
-#   Central Meridian: 103°50'00"E
-#   Latitude of Origin: 1°22'00"N
-#   False Easting: 28001.642
-#   False Northing: 38744.572
-#   Scale factor: 1.000
-#   Ellipsoid: WGS84 a=6378137, inv_f=298.257223563
+
+# SVY21 (EPSG:3414) inverse Transverse Mercator -> WGS84 (EPSG:4326)
 def svy21_to_wgs84(easting, northing):
     a = 6378137.0
     inv_f = 298.257223563
@@ -140,12 +181,13 @@ def svy21_to_wgs84(easting, northing):
 
     return math.degrees(lon), math.degrees(lat)
 
+
 def fetch_dataset(resource_id):
     url = datastore_search_url()
     offset = 0
     rows = []
-    total = 0
     fields = []
+    total = 0
 
     while True:
         resp = requests.get(
@@ -160,8 +202,8 @@ def fetch_dataset(resource_id):
 
         result = payload.get("result") or {}
         if offset == 0:
-            total = int(result.get("total") or 0)
             fields = result.get("fields") or []
+            total = int(result.get("total") or 0)
 
         batch = result.get("records") or []
         if not batch:
@@ -191,6 +233,7 @@ def fetch_dataset(resource_id):
 
     return rows, cols
 
+
 def compute_translated_and_normalize_xy(rows):
     x_candidates = ["x_coord", "x", "easting", "east", "xcoord", "x-coordinate", "xcoordinate"]
     y_candidates = ["y_coord", "y", "northing", "north", "ycoord", "y-coordinate", "ycoordinate"]
@@ -200,7 +243,6 @@ def compute_translated_and_normalize_xy(rows):
         x_key = find_key_case_insensitive(keys, x_candidates)
         y_key = find_key_case_insensitive(keys, y_candidates)
 
-        # normalise into x_coord/y_coord for consistent display and conversion
         if x_key and X_COL not in r:
             r[X_COL] = r.get(x_key, "")
         if y_key and Y_COL not in r:
@@ -217,16 +259,127 @@ def compute_translated_and_normalize_xy(rows):
             r[LON_T] = f"{lon:.6f}"
             r[LAT_T] = f"{lat:.6f}"
 
+
+def fetch_availability(force_refresh=False):
+    now = time.time()
+    if (not force_refresh) and now < _avail_cache["expires_at"]:
+        return _avail_cache
+
+    url = "https://api.data.gov.sg/v1/transport/carpark-availability"
+    headers = {}
+    if DATA_GOV_SG_API_KEY:
+        headers["x-api-key"] = DATA_GOV_SG_API_KEY
+
+    amap = {}
+    ts = ""
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        payload = resp.json()
+
+        items = payload.get("items") or []
+        if items:
+            first = items[0] or {}
+            ts = first.get("timestamp") or ""
+
+            carpark_data = first.get("carpark_data") or []
+
+            # Expected real-world shape:
+            # carpark_data: [{carpark_number, carpark_info:[{lot_type,total_lots,lots_available}, ...]}, ...]
+            # The OpenAPI snippet in [CarparkAvailability (2).json](https://gccprod-my.sharepoint.com/personal/ernest_chung_acra_gov_sg/Documents/Downloads/CarparkAvailability%20%282%29.json?web=1&EntityRepresentationId=715df263-0574-4b78-8c83-089791f24426) omits carpark_number, so we guard accordingly. [1](https://gccprod-my.sharepoint.com/personal/ernest_chung_acra_gov_sg/Documents/Downloads/CarparkAvailability%20(2).json?web=1)
+            for entry in carpark_data:
+                cpn = (
+                    entry.get("carpark_number")
+                    or entry.get("carpark_no")
+                    or entry.get("car_park_no")
+                    or entry.get("carpark")
+                    or ""
+                )
+                if not cpn:
+                    continue
+
+                info_list = entry.get("carpark_info") or []
+                if not isinstance(info_list, list):
+                    info_list = []
+
+                if cpn not in amap:
+                    amap[cpn] = {}
+
+                for lot in info_list:
+                    if not isinstance(lot, dict):
+                        continue
+                    lt = (lot.get("lot_type") or "").strip()
+                    avail = safe_int(lot.get("lots_available"))
+                    total = safe_int(lot.get("total_lots"))
+                    if lt:
+                        amap[cpn][lt] = (avail, total)
+
+    except Exception:
+        amap = {}
+        ts = ""
+
+    _avail_cache.update({
+        "expires_at": now + AVAIL_TTL_SECONDS,
+        "timestamp": ts,
+        "map": amap
+    })
+    return _avail_cache
+
+
+def apply_availability(rows):
+    avail = fetch_availability(force_refresh=False)
+    ts = avail.get("timestamp", "")
+    amap = avail.get("map", {})
+
+    cp_candidates = ["car_park_no", "carpark_number", "car_park_number", "carpark_no", "carparkno", "carpark"]
+    for r in rows:
+        for c in AVAIL_COLS:
+            r[c] = ""
+
+        keys = list(r.keys())
+        cp_key = find_key_case_insensitive(keys, cp_candidates)
+        if not cp_key:
+            continue
+
+        cp_no = str(r.get(cp_key, "")).strip()
+        if not cp_no:
+            continue
+
+        lots = amap.get(cp_no)
+        if not lots:
+            continue
+
+        r[AVAIL_TS] = ts
+
+        def set_lot(lt, avail_key, total_key):
+            at = lots.get(lt)
+            if not at:
+                return
+            a, t = at
+            r[avail_key] = "" if a is None else str(a)
+            r[total_key] = "" if t is None else str(t)
+
+        set_lot("C", LOTS_AVAIL_C, TOTAL_LOTS_C)
+        set_lot("H", LOTS_AVAIL_H, TOTAL_LOTS_H)
+        set_lot("S", LOTS_AVAIL_S, TOTAL_LOTS_S)
+        set_lot("Y", LOTS_AVAIL_Y, TOTAL_LOTS_Y)
+
+
 def build_merged_columns(all_cols):
-    # ensure these always exist and are ordered to the far right
-    base = [c for c in all_cols if c not in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL)]
+    base = [c for c in all_cols if c not in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
+    base += AVAIL_COLS
     base += [X_COL, Y_COL, LON_T, LAT_T, SRC_COL]
     return base
+
 
 def get_data(force_refresh=False):
     now = time.time()
     if (not force_refresh) and _cache["rows"] and now < _cache["expires_at"]:
         return _cache
+
+    # refresh availability at most once per cycle
+    fetch_availability(force_refresh=True if force_refresh else False)
 
     merged_rows = []
     merged_cols_set = set()
@@ -234,24 +387,19 @@ def get_data(force_refresh=False):
     for ds in DATASETS:
         rid = ds["resource_id"]
         label = ds["label"]
-        rows, cols = fetch_dataset(rid)
 
-        # add to column set (show all dataset columns)
+        rows, cols = fetch_dataset(rid)
         for c in cols:
             merged_cols_set.add(c)
 
-        # tag source
         for r in rows:
             r[SRC_COL] = label
 
         compute_translated_and_normalize_xy(rows)
+        apply_availability(rows)
 
-        # ensure our computed fields are included in union
-        merged_cols_set.add(X_COL)
-        merged_cols_set.add(Y_COL)
-        merged_cols_set.add(LON_T)
-        merged_cols_set.add(LAT_T)
-        merged_cols_set.add(SRC_COL)
+        for c in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS):
+            merged_cols_set.add(c)
 
         merged_rows.extend(rows)
 
@@ -262,10 +410,10 @@ def get_data(force_refresh=False):
         "fetched_at": now_iso(),
         "total": len(merged_rows),
         "columns": merged_cols,
-        "rows": merged_rows
+        "rows": merged_rows,
     })
-
     return _cache
+
 
 def filter_rows(rows, q):
     if not q:
@@ -283,6 +431,7 @@ def filter_rows(rows, q):
                 break
     return out
 
+
 @app.route("/")
 def index():
     q = request.args.get("q", "")
@@ -291,7 +440,6 @@ def index():
     data = get_data(force_refresh=refresh)
     rows = filter_rows(data["rows"], q)
 
-    # map center from first 50 valid points (server-filtered)
     pts = []
     for r in rows:
         lon = safe_float(r.get(LON_T))
@@ -322,6 +470,7 @@ def index():
         map_center=map_center,
     )
 
+
 @app.route("/download.csv")
 def download_csv():
     q = request.args.get("q", "")
@@ -337,12 +486,14 @@ def download_csv():
     return Response(
         output.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=carparks_merged.csv"},
+        headers={"Content-Disposition": "attachment; filename=carparks_with_availability.csv"},
     )
+
 
 @app.route("/healthz")
 def healthz():
     return jsonify(ok=True)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
