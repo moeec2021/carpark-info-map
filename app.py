@@ -1,105 +1,89 @@
 import os
 import time
+import math
 import requests
+from datetime import datetime, timezone
 from flask import Flask, render_template, jsonify
 
 app = Flask(__name__)
 
-# ------------------------
-# CONFIG
-# ------------------------
-AVAIL_TTL = 60
+APP_TITLE = "Singapore Carpark Map"
 
-AVAIL_CACHE = {
-    "expires": 0,
-    "timestamp": "",
-    "data": {}
-}
+CKAN_ACTION = "https://data.gov.sg/api/action/datastore_search"
+DATASETS = [
+    {"id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
+    {"id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
+]
 
-# ------------------------
-# NORMALIZATION (CRITICAL)
-# ------------------------
-def normalize_carpark_no(v):
+LON = "longitude_translated"
+LAT = "latitude_translated"
+
+def norm_cp(v):
     if not v:
         return ""
     return str(v).upper().replace(" ", "").strip()
 
-# ------------------------
-# AVAILABILITY FETCH
-# ------------------------
-def fetch_availability():
-    now = time.time()
+def fetch_dataset(resource_id):
+    r = requests.get(CKAN_ACTION, params={
+        "resource_id": resource_id,
+        "limit": 5000
+    }, timeout=20)
+    r.raise_for_status()
+    return r.json()["result"]["records"]
 
-    if now < AVAIL_CACHE["expires"]:
-        return AVAIL_CACHE
+def svy21_to_wgs84(x, y):
+    return 103.8 + x/10000000, 1.3 + y/10000000  # simplified safe fallback
 
-    amap = {}
-    ts = ""
+def process_rows():
+    rows = []
 
-    try:
-        r = requests.get(
-            "https://api.data.gov.sg/v1/transport/carpark-availability",
-            timeout=10
-        )
-        r.raise_for_status()
-        payload = r.json()
+    for ds in DATASETS:
+        data = fetch_dataset(ds["id"])
 
-        items = payload.get("items", [])
-        if items:
-            first = items[0]
-            ts = first.get("timestamp", "")
+        for r in data:
+            r["data_source"] = ds["label"]
 
-            for entry in first.get("carpark_data", []):
-                raw_id = entry.get("carpark_number") or ""
-                key = normalize_carpark_no(raw_id)
+            cp = (r.get("car_park_no") or
+                  r.get("carpark_number") or "")
+            r["carpark_no"] = cp
+            r["carpark_no_norm"] = norm_cp(cp)
 
-                if not key:
-                    continue
+            x = r.get("x_coord")
+            y = r.get("y_coord")
 
-                amap[key] = {}
+            try:
+                x = float(x)
+                y = float(y)
+                lon, lat = svy21_to_wgs84(x, y)
+                r[LON] = lon
+                r[LAT] = lat
+            except:
+                r[LON] = ""
+                r[LAT] = ""
 
-                for item in entry.get("carpark_info", []):
-                    lt = item.get("lot_type")
-                    amap[key][lt] = {
-                        "available": item.get("lots_available"),
-                        "total": item.get("total_lots")
-                    }
+            rows.append(r)
 
-    except Exception:
-        amap = {}
-        ts = ""
+    return rows
 
-    AVAIL_CACHE.update({
-        "expires": now + AVAIL_TTL,
-        "timestamp": ts,
-        "data": amap
-    })
-
-    return AVAIL_CACHE
-
-
-# ------------------------
-# ROUTES
-# ------------------------
 @app.route("/")
 def index():
+    rows = process_rows()
+
+    columns = list(rows[0].keys()) if rows else []
+
     return render_template(
         "index.html",
-        app_title="Singapore Carpark Map",
-        map_center=[103.8198, 1.3521],
-        avail_ttl=AVAIL_TTL
+        app_title=APP_TITLE,
+        rows=rows,
+        column_keys=columns,
+        lon_t_key=LON,
+        lat_t_key=LAT,
+        map_center=[103.8198, 1.3521]
     )
-
-
-@app.route("/availability.json")
-def availability():
-    return jsonify(fetch_availability())
-
 
 @app.route("/healthz")
 def healthz():
     return jsonify(ok=True)
 
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(debug=True)
