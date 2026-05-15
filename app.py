@@ -23,7 +23,6 @@ HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
 DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
 AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
 
-# Carpark info datasets
 DATASETS = [
     {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
     {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
@@ -35,6 +34,10 @@ Y_COL = "y_coord"
 LON_T = "longitude_translated"
 LAT_T = "latitude_translated"
 SRC_COL = "data_source"
+
+# ✅ Canonical carpark number fields (new)
+CP_CANON = "carpark_no"
+CP_NORM = "carpark_no_norm"
 
 # Availability columns (C/H/Y)
 AVAIL_TS = "availability_timestamp"
@@ -49,7 +52,7 @@ AVAIL_COLS = [
     AVAIL_TS,
     LOTS_AVAIL_C, TOTAL_LOTS_C,
     LOTS_AVAIL_H, TOTAL_LOTS_H,
-    LOTS_AVAIL_Y, TOTAL_LOTS_Y
+    LOTS_AVAIL_Y, TOTAL_LOTS_Y,
 ]
 
 INTERNAL_KEYS = {"_id", "_full_text"}
@@ -68,7 +71,7 @@ _data_cache = {
 _avail_cache = {
     "expires_at": 0.0,
     "timestamp": "",
-    # map: carpark_number -> {'C': (avail,total), 'H':(...), 'Y':(...)}
+    # map: carpark_no_norm -> { 'C': (avail,total), 'H':(...), 'Y':(...) }
     "map": {}
 }
 
@@ -105,6 +108,14 @@ def safe_int(v):
 def datastore_search_url() -> str:
     return CKAN_ACTION_BASE.rstrip("/") + "/datastore_search"
 
+def norm_carpark_no(v: str) -> str:
+    # ✅ Stable normalization for both datasets + API keys
+    # Uppercase, remove spaces/tabs, strip
+    s = "" if v is None else str(v)
+    s = s.strip().upper()
+    s = "".join(ch for ch in s if not ch.isspace())
+    return s
+
 def find_key_ci(keys, candidates):
     lk = {k.lower(): k for k in keys}
     for c in candidates:
@@ -114,7 +125,7 @@ def find_key_ci(keys, candidates):
     return None
 
 # -----------------------
-# SVY21 -> WGS84 (stable)
+# SVY21 -> WGS84
 # -----------------------
 def svy21_to_wgs84(easting: float, northing: float):
     a = 6378137.0
@@ -125,8 +136,8 @@ def svy21_to_wgs84(easting: float, northing: float):
     e2 = (a * a - b * b) / (a * a)
     ep2 = e2 / (1.0 - e2)
 
-    lat0 = math.radians(1.3666666666666667)          # 1°22′00″ N
-    lon0 = math.radians(103.83333333333333)          # 103°50′00″ E
+    lat0 = math.radians(1.3666666666666667)
+    lon0 = math.radians(103.83333333333333)
     FE = 28001.642
     FN = 38744.572
     k0 = 1.0
@@ -235,23 +246,32 @@ def fetch_dataset(resource_id):
 
     return rows, cols
 
-def normalize_xy_and_translate(rows):
+def normalize_record_keys(rows):
+    # ✅ normalize car park number consistently across datasets
+    cp_candidates = ["car_park_no", "carpark_number", "car_park_number", "carpark_no", "carparkno", "carpark"]
     x_candidates = ["x_coord", "x", "easting", "east", "xcoord", "x-coordinate", "xcoordinate"]
     y_candidates = ["y_coord", "y", "northing", "north", "ycoord", "y-coordinate", "ycoordinate"]
 
     for r in rows:
         keys = list(r.keys())
+
+        # canonical carpark number
+        cp_key = find_key_ci(keys, cp_candidates)
+        cp_val = r.get(cp_key, "") if cp_key else ""
+        r[CP_CANON] = str(cp_val).strip()
+        r[CP_NORM] = norm_carpark_no(r[CP_CANON])
+
+        # normalize x/y into x_coord/y_coord if needed
         x_key = find_key_ci(keys, x_candidates)
         y_key = find_key_ci(keys, y_candidates)
-
         if x_key and X_COL not in r:
             r[X_COL] = r.get(x_key, "")
         if y_key and Y_COL not in r:
             r[Y_COL] = r.get(y_key, "")
 
+        # translate coords once
         x = safe_float(r.get(X_COL))
         y = safe_float(r.get(Y_COL))
-
         if x is None or y is None:
             r[LON_T] = ""
             r[LAT_T] = ""
@@ -261,7 +281,10 @@ def normalize_xy_and_translate(rows):
             r[LAT_T] = f"{lat:.6f}"
 
 def build_columns(all_cols):
-    base = [c for c in all_cols if c not in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
+    # Ensure canonical carpark fields exist in final output
+    # Keep availability near end; keep coords + source at end.
+    base = [c for c in all_cols if c not in (CP_CANON, CP_NORM, X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
+    base = [CP_CANON, CP_NORM] + base
     base += AVAIL_COLS
     base += [X_COL, Y_COL, LON_T, LAT_T, SRC_COL]
     return base
@@ -285,20 +308,15 @@ def merge_carpark_info(force_refresh=False):
         for r in rows:
             r[SRC_COL] = label
 
-        normalize_xy_and_translate(rows)
+        normalize_record_keys(rows)
         merged_rows.extend(rows)
 
-        for c in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL):
+        # ensure these always included
+        for c in (CP_CANON, CP_NORM, X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS):
             merged_cols.add(c)
 
-    # deterministic sort to prevent jitter
-    def sort_key(r):
-        ds = str(r.get(SRC_COL, "")).strip()
-        cp = str(r.get("car_park_no", "") or r.get("carpark_number", "") or "").strip()
-        addr = str(r.get("address", "")).strip()
-        return (ds, cp, addr)
-
-    merged_rows.sort(key=sort_key)
+    # Deterministic sorting by normalized key to guarantee stable order/coordinates
+    merged_rows.sort(key=lambda r: (str(r.get(SRC_COL, "")), str(r.get(CP_NORM, "")), str(r.get("address", ""))))
 
     col_list = build_columns(list(merged_cols))
 
@@ -312,7 +330,7 @@ def merge_carpark_info(force_refresh=False):
     return _data_cache
 
 # -----------------------
-# Availability (safe)
+# Availability (normalized key)
 # -----------------------
 def fetch_availability(force_refresh=False):
     now = time.time()
@@ -342,20 +360,16 @@ def fetch_availability(force_refresh=False):
                 if not isinstance(entry, dict):
                     continue
 
-                cpn = (
-                    entry.get("carpark_number")
-                    or entry.get("carpark_no")
-                    or entry.get("car_park_no")
-                    or ""
-                )
-                if not cpn:
+                cpn = entry.get("carpark_number") or entry.get("carpark_no") or entry.get("car_park_no") or ""
+                cpn_norm = norm_carpark_no(cpn)
+                if not cpn_norm:
                     continue
 
                 info_list = entry.get("carpark_info") or []
                 if not isinstance(info_list, list):
                     continue
 
-                amap.setdefault(cpn, {})
+                amap.setdefault(cpn_norm, {})
 
                 for lot in info_list:
                     if not isinstance(lot, dict):
@@ -365,7 +379,7 @@ def fetch_availability(force_refresh=False):
                         continue
                     av = safe_int(lot.get("lots_available"))
                     tot = safe_int(lot.get("total_lots"))
-                    amap[cpn][lt] = (av, tot)
+                    amap[cpn_norm][lt] = (av, tot)
 
     except Exception:
         amap = {}
@@ -383,22 +397,15 @@ def apply_availability(rows):
     ts = a.get("timestamp", "")
     amap = a.get("map", {})
 
-    cp_candidates = ["car_park_no", "carpark_number", "car_park_number", "carpark_no", "carparkno", "carpark"]
-
     for r in rows:
         for c in AVAIL_COLS:
             r[c] = ""
 
-        keys = list(r.keys())
-        cp_key = find_key_ci(keys, cp_candidates)
-        if not cp_key:
+        key = str(r.get(CP_NORM, "")).strip()
+        if not key:
             continue
 
-        cp_no = str(r.get(cp_key, "")).strip()
-        if not cp_no:
-            continue
-
-        lots = amap.get(cp_no)
+        lots = amap.get(key)
         if not lots:
             continue
 
@@ -464,10 +471,10 @@ def index():
 def availability_json():
     a = fetch_availability(force_refresh=False)
     out = {}
-    for cp, lots in (a.get("map") or {}).items():
-        out[cp] = {}
+    for cp_norm, lots in (a.get("map") or {}).items():
+        out[cp_norm] = {}
         for lt, (av, tot) in lots.items():
-            out[cp][lt] = {"available": av, "total": tot}
+            out[cp_norm][lt] = {"available": av, "total": tot}
     return jsonify(timestamp=a.get("timestamp", ""), data=out)
 
 @app.route("/download.csv")
