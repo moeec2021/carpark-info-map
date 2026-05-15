@@ -4,10 +4,79 @@ import math
 import csv
 import io
 import requests
-from datetime-------from datetime import datetime, timezone
-def now_iso():
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+from datetime import datetime, timezone
+from flask import Flask, render_template, request, Response, jsonify
 
+app = Flask(__name__)
+
+# -----------------------
+# Config
+# -----------------------
+APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
+
+CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
+FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))
+MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
+HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
+
+DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
+AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
+
+# Carpark info datasets
+DATASETS = [
+    {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
+    {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
+]
+
+# Canonical columns
+X_COL = "x_coord"
+Y_COL = "y_coord"
+LON_T = "longitude_translated"
+LAT_T = "latitude_translated"
+SRC_COL = "data_source"
+
+# Availability columns (C/H/Y)
+AVAIL_TS = "availability_timestamp"
+LOTS_AVAIL_C = "lots_available_C"
+TOTAL_LOTS_C = "total_lots_C"
+LOTS_AVAIL_H = "lots_available_H"
+TOTAL_LOTS_H = "total_lots_H"
+LOTS_AVAIL_Y = "lots_available_Y"
+TOTAL_LOTS_Y = "total_lots_Y"
+
+AVAIL_COLS = [
+    AVAIL_TS,
+    LOTS_AVAIL_C, TOTAL_LOTS_C,
+    LOTS_AVAIL_H, TOTAL_LOTS_H,
+    LOTS_AVAIL_Y, TOTAL_LOTS_Y
+]
+
+INTERNAL_KEYS = {"_id", "_full_text"}
+
+# -----------------------
+# Caches
+# -----------------------
+_data_cache = {
+    "expires_at": 0.0,
+    "fetched_at": "",
+    "total": 0,
+    "columns": [],
+    "rows": [],
+}
+
+_avail_cache = {
+    "expires_at": 0.0,
+    "timestamp": "",
+    # map: carpark_number -> {'C': (avail,total), 'H':(...), 'Y':(...)}
+    "map": {}
+}
+
+# -----------------------
+# Helpers
+# -----------------------
+def now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 def safe_float(v):
     if v is None:
@@ -22,7 +91,6 @@ def safe_float(v):
     except ValueError:
         return None
 
-
 def safe_int(v):
     if v is None:
         return None
@@ -34,10 +102,8 @@ def safe_int(v):
     except ValueError:
         return None
 
-
-def datastore_search_url():
+def datastore_search_url() -> str:
     return CKAN_ACTION_BASE.rstrip("/") + "/datastore_search"
-
 
 def find_key_ci(keys, candidates):
     lk = {k.lower(): k for k in keys}
@@ -47,12 +113,10 @@ def find_key_ci(keys, candidates):
             return hit
     return None
 
-
 # -----------------------
-# SVY21 -> WGS84
-# (stable formatting: 6dp strings)
+# SVY21 -> WGS84 (stable)
 # -----------------------
-def svy21_to_wgs84(easting, northing):
+def svy21_to_wgs84(easting: float, northing: float):
     a = 6378137.0
     inv_f = 298.257223563
     f = 1.0 / inv_f
@@ -61,8 +125,8 @@ def svy21_to_wgs84(easting, northing):
     e2 = (a * a - b * b) / (a * a)
     ep2 = e2 / (1.0 - e2)
 
-    lat0 = math.radians(1.3666666666666667)
-    lon0 = math.radians(103.83333333333333)
+    lat0 = math.radians(1.3666666666666667)          # 1°22′00″ N
+    lon0 = math.radians(103.83333333333333)          # 103°50′00″ E
     FE = 28001.642
     FN = 38744.572
     k0 = 1.0
@@ -116,7 +180,6 @@ def svy21_to_wgs84(easting, northing):
     ) / cos1
 
     return math.degrees(lon), math.degrees(lat)
-
 
 # -----------------------
 # CKAN fetch
@@ -172,7 +235,6 @@ def fetch_dataset(resource_id):
 
     return rows, cols
 
-
 def normalize_xy_and_translate(rows):
     x_candidates = ["x_coord", "x", "easting", "east", "xcoord", "x-coordinate", "xcoordinate"]
     y_candidates = ["y_coord", "y", "northing", "north", "ycoord", "y-coordinate", "ycoordinate"]
@@ -198,13 +260,11 @@ def normalize_xy_and_translate(rows):
             r[LON_T] = f"{lon:.6f}"
             r[LAT_T] = f"{lat:.6f}"
 
-
 def build_columns(all_cols):
     base = [c for c in all_cols if c not in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
     base += AVAIL_COLS
     base += [X_COL, Y_COL, LON_T, LAT_T, SRC_COL]
     return base
-
 
 def merge_carpark_info(force_refresh=False):
     now = time.time()
@@ -231,7 +291,7 @@ def merge_carpark_info(force_refresh=False):
         for c in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL):
             merged_cols.add(c)
 
-    # Deterministic ordering (prevents “jitter” across refreshes)
+    # deterministic sort to prevent jitter
     def sort_key(r):
         ds = str(r.get(SRC_COL, "")).strip()
         cp = str(r.get("car_park_no", "") or r.get("carpark_number", "") or "").strip()
@@ -251,9 +311,8 @@ def merge_carpark_info(force_refresh=False):
     })
     return _data_cache
 
-
 # -----------------------
-# Availability (syntax-safe)
+# Availability (safe)
 # -----------------------
 def fetch_availability(force_refresh=False):
     now = time.time()
@@ -296,8 +355,7 @@ def fetch_availability(force_refresh=False):
                 if not isinstance(info_list, list):
                     continue
 
-                if cpn not in amap:
-                    amap[cpn] = {}
+                amap.setdefault(cpn, {})
 
                 for lot in info_list:
                     if not isinstance(lot, dict):
@@ -319,7 +377,6 @@ def fetch_availability(force_refresh=False):
         "map": amap
     })
     return _avail_cache
-
 
 def apply_availability(rows):
     a = fetch_availability(force_refresh=False)
@@ -359,7 +416,6 @@ def apply_availability(rows):
         set_lot("H", LOTS_AVAIL_H, TOTAL_LOTS_H)
         set_lot("Y", LOTS_AVAIL_Y, TOTAL_LOTS_Y)
 
-
 # -----------------------
 # Routes
 # -----------------------
@@ -376,7 +432,6 @@ def index():
         if qq:
             rows = [r for r in rows if any(qq in str(v).lower() for v in r.values() if v is not None)]
 
-    # Apply availability without touching coordinates
     apply_availability(rows)
 
     pts = []
@@ -388,10 +443,7 @@ def index():
         if len(pts) >= 50:
             break
 
-    if pts:
-        center = [sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)]
-    else:
-        center = [103.8198, 1.3521]
+    center = [103.8198, 1.3521] if not pts else [sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts)]
 
     return render_template(
         "index.html",
@@ -408,18 +460,15 @@ def index():
         avail_ttl=AVAIL_TTL_SECONDS
     )
 
-
 @app.route("/availability.json")
 def availability_json():
     a = fetch_availability(force_refresh=False)
     out = {}
     for cp, lots in (a.get("map") or {}).items():
         out[cp] = {}
-        for lt, pair in lots.items():
-            av, tot = pair
+        for lt, (av, tot) in lots.items():
             out[cp][lt] = {"available": av, "total": tot}
     return jsonify(timestamp=a.get("timestamp", ""), data=out)
-
 
 @app.route("/download.csv")
 def download_csv():
@@ -446,82 +495,9 @@ def download_csv():
         headers={"Content-Disposition": "attachment; filename=carparks_with_availability.csv"}
     )
 
-
 @app.route("/healthz")
 def healthz():
     return jsonify(ok=True)
 
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
-``
-from flask import Flask, render_template, request, Response, jsonify
-
-app = Flask(__name__)
-
-# -----------------------
-# Config
-# -----------------------
-APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
-
-CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
-FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))
-MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
-CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
-HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
-
-DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
-AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
-
-# HDB + JTC datasets (carpark information)
-DATASETS = [
-    {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
-    {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
-]
-
-# Canonical columns
-X_COL = "x_coord"
-Y_COL = "y_coord"
-LON_T = "longitude_translated"
-LAT_T = "latitude_translated"
-SRC_COL = "data_source"
-
-# Availability columns (C/H/Y)
-AVAIL_TS = "availability_timestamp"
-LOTS_AVAIL_C = "lots_available_C"
-TOTAL_LOTS_C = "total_lots_C"
-LOTS_AVAIL_H = "lots_available_H"
-TOTAL_LOTS_H = "total_lots_H"
-LOTS_AVAIL_Y = "lots_available_Y"
-TOTAL_LOTS_Y = "total_lots_Y"
-
-AVAIL_COLS = [
-    AVAIL_TS,
-    LOTS_AVAIL_C, TOTAL_LOTS_C,
-    LOTS_AVAIL_H, TOTAL_LOTS_H,
-    LOTS_AVAIL_Y, TOTAL_LOTS_Y,
-]
-
-INTERNAL_KEYS = {"_id", "_full_text"}
-
-# -----------------------
-# Caches
-# -----------------------
-_data_cache = {
-    "expires_at": 0.0,
-    "fetched_at": "",
-    "total": 0,
-    "columns": [],
-    "rows": []
-}
-
-_avail_cache = {
-    "expires_at": 0.0,
-    "timestamp": "",
-    # map: carpark_number -> {'C': (avail,total), 'H':(...), 'Y':(...)}
-    "map": {}
-}
-
-
-# -----------------------
-# Helpers
