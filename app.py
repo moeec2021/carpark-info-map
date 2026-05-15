@@ -4,80 +4,7 @@ import math
 import csv
 import io
 import requests
-from datetime import datetime, timezone
-from flask import Flask, render_template, request, Response, jsonify
-
-app = Flask(__name__)
-
-# -----------------------
-# Config
-# -----------------------
-APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
-
-# CKAN (carpark info datasets)
-CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
-FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))
-MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
-CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
-HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
-
-# Availability API
-DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
-AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
-
-# Merge HDB + JTC carpark info datasets
-DATASETS = [
-    {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
-    {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
-]
-
-# Core columns
-X_COL = "x_coord"
-Y_COL = "y_coord"
-LON_T = "longitude_translated"
-LAT_T = "latitude_translated"
-SRC_COL = "data_source"
-
-# Availability columns (C/H/Y)
-AVAIL_TS = "availability_timestamp"
-LOTS_AVAIL_C = "lots_available_C"
-TOTAL_LOTS_C = "total_lots_C"
-LOTS_AVAIL_H = "lots_available_H"
-TOTAL_LOTS_H = "total_lots_H"
-LOTS_AVAIL_Y = "lots_available_Y"
-TOTAL_LOTS_Y = "total_lots_Y"
-
-AVAIL_COLS = [
-    AVAIL_TS,
-    LOTS_AVAIL_C, TOTAL_LOTS_C,
-    LOTS_AVAIL_H, TOTAL_LOTS_H,
-    LOTS_AVAIL_Y, TOTAL_LOTS_Y
-]
-
-INTERNAL_KEYS = {"_id", "_full_text"}
-
-# -----------------------
-# Caches
-# -----------------------
-_data_cache = {
-    "expires_at": 0.0,
-    "fetched_at": "",
-    "total": 0,
-    "columns": [],
-    "rows": []
-}
-
-_avail_cache = {
-    "expires_at": 0.0,
-    "timestamp": "",
-    # map: carpark_number -> { 'C': (avail,total), 'H':(...), 'Y':(...) }
-    "map": {}
-}
-
-
-# -----------------------
-# Helpers
-# -----------------------
+from datetime-------from datetime import datetime, timezone
 def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -122,7 +49,8 @@ def find_key_ci(keys, candidates):
 
 
 # -----------------------
-# SVY21 -> WGS84 (stable)
+# SVY21 -> WGS84
+# (stable formatting: 6dp strings)
 # -----------------------
 def svy21_to_wgs84(easting, northing):
     a = 6378137.0
@@ -191,7 +119,7 @@ def svy21_to_wgs84(easting, northing):
 
 
 # -----------------------
-# CKAN fetch + deterministic merge
+# CKAN fetch
 # -----------------------
 def fetch_dataset(resource_id):
     url = datastore_search_url()
@@ -204,7 +132,7 @@ def fetch_dataset(resource_id):
         resp = requests.get(
             url,
             params={"resource_id": resource_id, "limit": FETCH_LIMIT, "offset": offset},
-            timeout=HTTP_TIMEOUT_SECONDS
+            timeout=HTTP_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
         payload = resp.json()
@@ -226,6 +154,7 @@ def fetch_dataset(resource_id):
         if len(rows) >= MAX_RECORDS:
             rows = rows[:MAX_RECORDS]
             break
+
         if offset >= total:
             break
 
@@ -266,7 +195,6 @@ def normalize_xy_and_translate(rows):
             r[LAT_T] = ""
         else:
             lon, lat = svy21_to_wgs84(x, y)
-            # Stable formatting so the same row always serializes identically
             r[LON_T] = f"{lon:.6f}"
             r[LAT_T] = f"{lat:.6f}"
 
@@ -278,7 +206,7 @@ def build_columns(all_cols):
     return base
 
 
-def merge_and_cache_carpark_info(force_refresh=False):
+def merge_carpark_info(force_refresh=False):
     now = time.time()
     if (not force_refresh) and _data_cache["rows"] and now < _data_cache["expires_at"]:
         return _data_cache
@@ -303,12 +231,11 @@ def merge_and_cache_carpark_info(force_refresh=False):
         for c in (X_COL, Y_COL, LON_T, LAT_T, SRC_COL):
             merged_cols.add(c)
 
-    # Deterministic ordering to prevent coordinate/marker “jitter” between refreshes
-    # Prefer car_park_no if present, else address, else stable string of keys.
+    # Deterministic ordering (prevents “jitter” across refreshes)
     def sort_key(r):
+        ds = str(r.get(SRC_COL, "")).strip()
         cp = str(r.get("car_park_no", "") or r.get("carpark_number", "") or "").strip()
         addr = str(r.get("address", "")).strip()
-        ds = str(r.get(SRC_COL, "")).strip()
         return (ds, cp, addr)
 
     merged_rows.sort(key=sort_key)
@@ -400,8 +327,8 @@ def apply_availability(rows):
     amap = a.get("map", {})
 
     cp_candidates = ["car_park_no", "carpark_number", "car_park_number", "carpark_no", "carparkno", "carpark"]
+
     for r in rows:
-        # default blanks
         for c in AVAIL_COLS:
             r[c] = ""
 
@@ -441,9 +368,9 @@ def index():
     q = request.args.get("q", "")
     refresh = request.args.get("refresh") == "1"
 
-    data = merge_and_cache_carpark_info(force_refresh=refresh)
-
+    data = merge_carpark_info(force_refresh=refresh)
     rows = data["rows"]
+
     if q:
         qq = q.lower().strip()
         if qq:
@@ -452,7 +379,6 @@ def index():
     # Apply availability without touching coordinates
     apply_availability(rows)
 
-    # Center map from first 50 points
     pts = []
     for r in rows:
         lon = safe_float(r.get(LON_T))
@@ -498,7 +424,7 @@ def availability_json():
 @app.route("/download.csv")
 def download_csv():
     q = request.args.get("q", "")
-    data = merge_and_cache_carpark_info(force_refresh=False)
+    data = merge_carpark_info(force_refresh=False)
     rows = data["rows"]
 
     if q:
@@ -528,3 +454,74 @@ def healthz():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+``
+from flask import Flask, render_template, request, Response, jsonify
+
+app = Flask(__name__)
+
+# -----------------------
+# Config
+# -----------------------
+APP_TITLE = os.getenv("APP_TITLE", "Singapore Carpark Map")
+
+CKAN_ACTION_BASE = os.getenv("CKAN_ACTION_BASE", "https://data.gov.sg/api/action")
+FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "5000"))
+MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20000"))
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "21600"))
+HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
+
+DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
+AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
+
+# HDB + JTC datasets (carpark information)
+DATASETS = [
+    {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
+    {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
+]
+
+# Canonical columns
+X_COL = "x_coord"
+Y_COL = "y_coord"
+LON_T = "longitude_translated"
+LAT_T = "latitude_translated"
+SRC_COL = "data_source"
+
+# Availability columns (C/H/Y)
+AVAIL_TS = "availability_timestamp"
+LOTS_AVAIL_C = "lots_available_C"
+TOTAL_LOTS_C = "total_lots_C"
+LOTS_AVAIL_H = "lots_available_H"
+TOTAL_LOTS_H = "total_lots_H"
+LOTS_AVAIL_Y = "lots_available_Y"
+TOTAL_LOTS_Y = "total_lots_Y"
+
+AVAIL_COLS = [
+    AVAIL_TS,
+    LOTS_AVAIL_C, TOTAL_LOTS_C,
+    LOTS_AVAIL_H, TOTAL_LOTS_H,
+    LOTS_AVAIL_Y, TOTAL_LOTS_Y,
+]
+
+INTERNAL_KEYS = {"_id", "_full_text"}
+
+# -----------------------
+# Caches
+# -----------------------
+_data_cache = {
+    "expires_at": 0.0,
+    "fetched_at": "",
+    "total": 0,
+    "columns": [],
+    "rows": []
+}
+
+_avail_cache = {
+    "expires_at": 0.0,
+    "timestamp": "",
+    # map: carpark_number -> {'C': (avail,total), 'H':(...), 'Y':(...)}
+    "map": {}
+}
+
+
+# -----------------------
+# Helpers
