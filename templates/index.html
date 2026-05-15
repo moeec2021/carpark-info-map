@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ Correct stylesheet load -->
-   }}">
+  <!-- ✅ FIXED: Proper stylesheet loading -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- ✅ MapLibre -->
-  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css
-  https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.jsscript>
+  <!-- ✅ FIXED: MapLibre correctly loaded -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-  <!-- DataTables + jQuery -->
+  <!-- ✅ DataTables -->
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
@@ -19,33 +19,33 @@
   <style>
     #map {
       height: 480px;
-      width: 100%;
-      border: 1px solid var(--border);
       border-radius: 12px;
       margin: 12px 0;
-      overflow: hidden;
     }
 
     .marker {
       width: 22px;
       height: 22px;
-      border-radius: 999px;
+      border-radius: 50%;
       display: grid;
       place-items: center;
       font-size: 12px;
       font-weight: 700;
-      user-select: none;
-      cursor: pointer;
       background: rgba(239,68,68,0.95);
       color: #ffffff;
       border: 2px solid rgba(255,255,255,0.9);
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      cursor: pointer;
     }
+
     .marker.blue { background: rgba(59,130,246,0.95) !important; }
     .marker.red  { background: rgba(239,68,68,0.95) !important; }
-    .marker.jtc  { border-color: #ec4899 !important; color: #f472b6 !important; }
 
-    tr.row-selected td { background: rgba(96,165,250,0.18) !important; }
+    /* ✅ JTC */
+    .marker.jtc {
+      border-color: #ec4899 !important;
+      color: #f472b6 !important;
+    }
   </style>
 </head>
 
@@ -53,28 +53,12 @@
 <div class="container">
 
   <h1>{{ app_title }}</h1>
+
   <div class="banner">Dataset: {{ resource_id }}</div>
 
-  <div class="meta">
-    <span><strong>Last fetched:</strong> {{ fetched_at }}</span>
-    <span><strong>Total records:</strong> {{ total_ckan }}</span>
-  </div>
-
-  <form method="get" class="filter">
-    <input type="text" name="q" value="{{ q }}" placeholder="Server-side contains filter">
-    <button type="submit">Apply server filter</button>
-    /?refresh=1{% if q %}&q={{ q }}{% endif %}Refresh cache</a>
-    /download.csv{% if q %}?q={{ q }}{% endif %}Download CSV</a>
-  </form>
-
-  <div class="searchbar">
-    <label>Search:</label>
-    <input id="dtSearch" type="text" placeholder="Search within table (client-side)">
-    <button id="clearSearch" type="button">Clear</button>
-  </div>
-
   <div class="legend">
-    Fill: 🔵 Night parking | 🔴 No night parking &nbsp;•&nbsp;
+    Fill: 🔵 Night parking | 🔴 No night parking
+    &nbsp; • &nbsp;
     Dataset: 🟣 JTC | ⚪ HDB
   </div>
 
@@ -83,24 +67,16 @@
   <table id="carparkTable" class="display">
     <thead>
       <tr>
-        <th data-colkey="_rownum">#</th>
-        <th data-colkey="_geo">Geocoded</th>
+        <th>#</th>
         {% for c in column_keys %}
-          {% if c == lon_t_key %}
-            <th data-colkey="{{ c }}">Longitude (Translated)</th>
-          {% elif c == lat_t_key %}
-            <th data-colkey="{{ c }}">Latitude (Translated)</th>
-          {% else %}
-            <th data-colkey="{{ c }}">{{ c.replace('_',' ') | title }}</th>
-          {% endif %}
+          <th>{{ c.replace('_',' ') | title }}</th>
         {% endfor %}
       </tr>
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr data-rowid="{{ loop.index0 }}">
-        <td class="col-rownum"></td>
-        <td class="col-geo"></td>
+      <tr>
+        <td>{{ loop.index }}</td>
         {% for c in column_keys %}
           <td>{{ r.get(c, "") }}</td>
         {% endfor %}
@@ -113,27 +89,16 @@
 
 <script>
 $(function () {
+
+  // ✅ Safety guard
   if (typeof maplibregl === 'undefined') {
-    console.error('MapLibre failed to load.');
+    console.error('MapLibre failed to load');
     return;
   }
 
   const table = $('#carparkTable').DataTable({
     pageLength: 10,
-    lengthMenu: [10, 25, 50, 100],
-    scrollX: true,
-    searching: true,
-    deferRender: true,
-    dom: 'lrtip'
-  });
-
-  $('#dtSearch').on('input', e => table.search(e.target.value || '').draw());
-  $('#clearSearch').on('click', () => table.search('').draw());
-
-  const colKeyToIndex = {};
-  $('#carparkTable thead th').each(function(i){
-    const k = $(this).attr('data-colkey');
-    if (k) colKeyToIndex[k] = i;
+    scrollX: true
   });
 
   const map = new maplibregl.Map({
@@ -149,75 +114,60 @@ $(function () {
           tileSize: 256
         }
       },
-      layers: [{ id:'base', type:'raster', source:'onemap' }]
+      layers: [{ id: 'base', type: 'raster', source: 'onemap' }]
     }
   });
 
-  function norm(v){ return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function norm(v){ return String(v||'').toLowerCase(); }
 
-  function findCol(pred){
+  function findCol(match){
     let idx = -1;
     $('#carparkTable thead th').each(function(i){
-      const k = norm($(this).attr('data-colkey') || $(this).text());
-      if (pred(k)) idx = i;
+      if (match(norm($(this).text()))) idx = i;
     });
     return idx;
   }
 
-  const nightIdx = () => findCol(k => k.includes('night') && k.includes('parking'));
-  const srcIdx   = () => findCol(k => (k === 'datasource') || (k.includes('data') && k.includes('source')));
-
-  function isNight(v){
-    v = norm(v);
-    return ['yes','y','true','t','1'].includes(v) || v.includes('night') || v.includes('available');
-  }
-
-  function isJtc(v){ return norm(v) === 'jtc'; }
+  const lonIdx = findCol(t => t.includes('longitude'));
+  const latIdx = findCol(t => t.includes('latitude'));
+  const srcIdx = findCol(t => t.includes('source'));
+  const nightIdx = findCol(t => t.includes('night'));
 
   let markers = [];
 
-  function rebuildMarkers(){
+  function rebuildMarkers() {
     markers.forEach(m => m.remove());
     markers = [];
 
-    const lonI = colKeyToIndex['{{ lon_t_key }}'];
-    const latI = colKeyToIndex['{{ lat_t_key }}'];
-    const nI = nightIdx();
-    const sI = srcIdx();
-
-    const bounds = new maplibregl.LngLatBounds();
     let n = 1;
 
     table.rows({page:'current'}).every(function(){
       const row = this.data();
-      const tr = this.node();
-      $(tr).find('.col-rownum').text(n);
 
-      const lon = parseFloat(row[lonI]);
-      const lat = parseFloat(row[latI]);
-      if (isNaN(lon) || isNaN(lat)) { n++; return; }
+      const lon = parseFloat(row[lonIdx]);
+      const lat = parseFloat(row[latIdx]);
+      if (isNaN(lon) || isNaN(lat)) return;
 
-      const night = nI >= 0 ? isNight(row[nI]) : false;
-      const jtc   = sI >= 0 ? isJtc(row[sI]) : false;
+      const night = nightIdx >= 0 && norm(row[nightIdx]).includes('yes');
+      const jtc   = srcIdx >= 0 && norm(row[srcIdx]) === 'jtc';
 
       const el = document.createElement('div');
-      el.className = `marker ${night ? 'blue' : 'red'}${jtc ? ' jtc' : ''}`;
-      el.textContent = String(n);
+      el.className = `marker ${night?'blue':'red'}${jtc?' jtc':''}`;
+      el.textContent = n;
 
-      const mk = new maplibregl.Marker({element: el})
-        .setLngLat([lon,lat])
-        .addTo(map);
+      markers.push(
+        new maplibregl.Marker({element: el})
+          .setLngLat([lon,lat])
+          .addTo(map)
+      );
 
-      markers.push(mk);
-      bounds.extend([lon,lat]);
       n++;
     });
-
-    if (markers.length > 0) map.fitBounds(bounds, {padding:50, maxZoom:16});
   }
 
-  table.on('draw', rebuildMarkers);
   map.on('load', rebuildMarkers);
+  table.on('draw', rebuildMarkers);
+
 });
 </script>
 
