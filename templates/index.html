@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
+<!-- ✅ CORRECT TAGS (CRITICAL FIX) -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 
@@ -23,12 +24,11 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-weight: bold;
+  font-weight: 800;
   font-size: 12px;
   background: #fb923c;
   color: white;
 }
-.marker.night { background: #3b82f6; }
 </style>
 </head>
 
@@ -36,6 +36,7 @@
 
 <h2>{{ app_title }}</h2>
 
+<!-- ✅ CLIENT SEARCH -->
 <input id="searchBox" placeholder="Search..." />
 
 <div id="map"></div>
@@ -43,20 +44,20 @@
 <table id="tbl" class="display">
 <thead>
 <tr>
-<th>#</th>
-{% for c in column_keys %}
-<th>{{ c }}</th>
-{% endfor %}
+  <th>#</th>
+  {% for c in column_keys %}
+  <th>{{ c }}</th>
+  {% endfor %}
 </tr>
 </thead>
 
 <tbody>
 {% for r in rows %}
-<tr data-lon="{{ r.get(lon_t_key,'') }}"
-    data-lat="{{ r.get(lat_t_key,'') }}">
+<tr data-lon="{{ r.get(lon_t_key) }}"
+    data-lat="{{ r.get(lat_t_key) }}">
 <td></td>
 {% for c in column_keys %}
-<td>{{ r.get(c,"") }}</td>
+<td>{{ r.get(c) }}</td>
 {% endfor %}
 </tr>
 {% endfor %}
@@ -70,6 +71,7 @@ const table = $('#tbl').DataTable({
   lengthMenu: [10,25,50,100]
 });
 
+/* ✅ CLIENT SEARCH */
 $('#searchBox').on('input', function(){
   table.search(this.value).draw();
 });
@@ -93,30 +95,35 @@ const map = new maplibregl.Map({
 
 let markers=[];
 
+/* ✅ FIXED MARKER LOGIC */
 function rebuildMarkers(){
 
-  markers.forEach(m=>m.remove());
-  markers=[];
+  markers.forEach(m => m.remove());
+  markers = [];
 
-  const nodes = table.rows({page:'current'}).nodes().toArray();
+  const rows = table.rows({page:'current'}).nodes().toArray();
 
-  let i=1;
+  let i = 1;
 
-  nodes.forEach(row=>{
-    const lon = parseFloat(row.dataset.lon);
-    const lat = parseFloat(row.dataset.lat);
+  rows.forEach(tr => {
 
-    row.cells[0].innerText = i;
+    const lon = parseFloat(tr.dataset.lon);
+    const lat = parseFloat(tr.dataset.lat);
 
-    if (!lon || !lat){ i++; return; }
+    tr.cells[0].innerText = i;
 
-    const el=document.createElement('div');
-    el.className='marker';
-    el.innerText=i;
+    if (!lon || !lat || isNaN(lon) || isNaN(lat)) {
+      i++;
+      return;
+    }
+
+    const el = document.createElement('div');
+    el.className = 'marker';
+    el.textContent = i;
 
     markers.push(
-      new maplibregl.Marker({element:el})
-        .setLngLat([lon,lat])
+      new maplibregl.Marker({element: el})
+        .setLngLat([lon, lat])
         .addTo(map)
     );
 
@@ -124,8 +131,23 @@ function rebuildMarkers(){
   });
 }
 
+/* ✅ CRITICAL FIX: ONLY draw event */
 table.on('draw.dt', rebuildMarkers);
+
+/* ✅ INITIAL LOAD */
 map.on('load', rebuildMarkers);
+
+/* ✅ RESIZE SAFE */
+function resizeFix(){
+  map.resize();
+  markers.forEach(m=>{
+    const p = m.getLngLat();
+    m.setLngLat(p);
+  });
+}
+
+window.addEventListener('resize', resizeFix);
+new ResizeObserver(resizeFix).observe(document.getElementById('map'));
 
 </script>
 
