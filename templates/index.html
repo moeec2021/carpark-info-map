@@ -115,7 +115,6 @@ const table = $('#tbl').DataTable({
   ],
   language: { search: '', searchPlaceholder: 'Filter table…' },
   drawCallback: function () {
-    // Re-number visible rows and update visible count
     let i = 1;
     table.rows({ page: 'current' }).nodes().each(tr => {
       tr.cells[0].textContent = i++;
@@ -164,12 +163,11 @@ map.addControl(new maplibregl.FullscreenControl(),  'top-right');
 const allFeatures = [];
 
 document.querySelectorAll('#tbl tbody tr').forEach(tr => {
-  const lon = parseFloat(tr.dataset.lon);
-  const lat = parseFloat(tr.dataset.lat);
+  const lon  = parseFloat(tr.dataset.lon);
+  const lat  = parseFloat(tr.dataset.lat);
   const cpNo = tr.dataset.cpno || '';
   if (isNaN(lon) || isNaN(lat)) return;
 
-  // Collect static cell values for popup
   const cells = Array.from(tr.cells);
   const staticText = cells.slice(5).map((td, i) => {
     const header = document.querySelectorAll('#tbl thead th')[i + 5];
@@ -188,7 +186,6 @@ const geojson = { type: 'FeatureCollection', features: allFeatures };
 map.on('load', () => {
   map.addSource('carparks', { type: 'geojson', data: geojson });
 
-  // Circle layer — colour driven by pct property
   map.addLayer({
     id: 'carparks-circle',
     type: 'circle',
@@ -207,7 +204,6 @@ map.on('load', () => {
     }
   });
 
-  // Popup on click
   const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '320px' });
 
   map.on('click', 'carparks-circle', e => {
@@ -246,6 +242,9 @@ map.on('load', () => {
   map.on('mouseleave', 'carparks-circle', () => {
     map.getCanvas().style.cursor = '';
   });
+
+  // Initial availability load once map is ready
+  loadAvailability(false);
 });
 
 // ─── Fit map to filtered results ──────────────────────────────────────────────
@@ -336,41 +335,43 @@ async function loadAvailability(showSpinner = false) {
     btn.textContent = '↻ Refreshing…';
     btn.disabled = true;
   }
+
   try {
     const res  = await fetch(AVAIL_ENDPOINT);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    availData  = json.carparks || {};
 
-    const ts = json.timestamp || '';
+    availData = {};
+    (json.data || []).forEach(item => {
+      const key = (item.carpark_number || '').toUpperCase();
+      availData[key] = item;
+    });
+
     document.getElementById('availTs').textContent =
-      ts ? new Date(ts).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-         : 'unknown';
+      json.timestamp ? new Date(json.timestamp).toLocaleTimeString() : '—';
 
     applyAvailabilityToTable();
     applyAvailabilityToMap();
+    table.draw(false);
+
   } catch (err) {
-    console.error('Failed to load availability:', err);
+    console.error('Availability fetch failed:', err);
   } finally {
-    if (showSpinner) {
-      btn.textContent = '↻ Refresh availability';
-      btn.disabled = false;
-    }
+    btn.textContent = '↻ Refresh availability';
+    btn.disabled = false;
   }
 }
 
-// Manual refresh button
+// ─── Manual refresh button ────────────────────────────────────────────────────
 $('#refreshAvailBtn').on('click', () => loadAvailability(true));
 
-// ─── Boot ─────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('loading').style.display = 'none';
+// ─── Poll every 60 s ─────────────────────────────────────────────────────────
+setInterval(() => loadAvailability(false), AVAIL_POLL_MS);
 
-  // Initial availability load — wait for map to be ready
-  map.on('load', () => loadAvailability(false));
-
-  // Poll every 60 s
-  setInterval(() => loadAvailability(false), AVAIL_POLL_MS);
-});
+// ─── Hide loading overlay ─────────────────────────────────────────────────────
+// The script runs after the DOM is fully parsed (script is at end of <body>),
+// so we can hide the overlay immediately without waiting for DOMContentLoaded.
+document.getElementById('loading').style.display = 'none';
 </script>
 
 </body>
