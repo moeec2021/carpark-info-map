@@ -24,24 +24,22 @@ HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "20"))
 DATA_GOV_SG_API_KEY = os.getenv("DATA_GOV_SG_API_KEY", "").strip()
 AVAIL_TTL_SECONDS = int(os.getenv("AVAIL_TTL_SECONDS", "60"))
 
-# Carpark info datasets
+# HDB + JTC carpark information datasets
 DATASETS = [
     {"resource_id": "d_23f946fa557947f93a8043bbef41dd09", "label": "HDB"},
     {"resource_id": "d_3b0c377cde41041c93f893d0a92e9fe7", "label": "JTC"},
 ]
 
-# Canonical columns
+# Canonical / computed columns
 X_COL = "x_coord"
 Y_COL = "y_coord"
 LON_T = "longitude_translated"
 LAT_T = "latitude_translated"
 SRC_COL = "data_source"
-
-# Canonical carpark number
 CP_CANON = "carpark_no"
 CP_NORM = "carpark_no_norm"
 
-# Availability columns (C/H/Y)
+# Availability columns (Cars / Heavy / Motorcycle)
 AVAIL_TS = "availability_timestamp"
 LOTS_AVAIL_C = "lots_available_C"
 TOTAL_LOTS_C = "total_lots_C"
@@ -73,7 +71,7 @@ _data_cache = {
 _avail_cache = {
     "expires_at": 0.0,
     "timestamp": "",
-    # map: carpark_no_norm -> {'C': (avail,total), 'H':(...), 'Y':(...) }
+    # map: carpark_no_norm -> {'C': (avail,total), 'H':(...), 'Y':(...)}
     "map": {},
 }
 
@@ -82,6 +80,7 @@ _avail_cache = {
 # -----------------------
 def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
 
 def safe_float(v):
     if v is None:
@@ -96,6 +95,7 @@ def safe_float(v):
     except ValueError:
         return None
 
+
 def safe_int(v):
     if v is None:
         return None
@@ -107,14 +107,17 @@ def safe_int(v):
     except ValueError:
         return None
 
+
 def norm_carpark_no(v):
     s = "" if v is None else str(v)
     s = s.strip().upper()
     s = "".join(ch for ch in s if not ch.isspace())
     return s
 
+
 def datastore_search_url():
     return CKAN_ACTION_BASE.rstrip("/") + "/datastore_search"
+
 
 def find_key_ci(keys, candidates):
     lk = {k.lower(): k for k in keys}
@@ -123,6 +126,7 @@ def find_key_ci(keys, candidates):
         if hit:
             return hit
     return None
+
 
 # -----------------------
 # SVY21 -> WGS84
@@ -192,8 +196,9 @@ def svy21_to_wgs84(easting: float, northing: float):
 
     return math.degrees(lon), math.degrees(lat)
 
+
 # -----------------------
-# CKAN
+# CKAN fetch / merge
 # -----------------------
 def fetch_dataset(resource_id):
     url = datastore_search_url()
@@ -246,6 +251,7 @@ def fetch_dataset(resource_id):
 
     return rows, cols
 
+
 def normalize_record(rows):
     cp_candidates = ["car_park_no", "carpark_number", "car_park_number", "carpark_no", "carparkno", "carpark"]
     x_candidates = ["x_coord", "x", "easting", "east", "xcoord", "x-coordinate", "xcoordinate"]
@@ -278,12 +284,14 @@ def normalize_record(rows):
             r[LON_T] = f"{lon:.6f}"
             r[LAT_T] = f"{lat:.6f}"
 
+
 def build_columns(all_cols):
     base = [c for c in all_cols if c not in (CP_CANON, CP_NORM, X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
     base = [CP_CANON, CP_NORM] + base
     base += AVAIL_COLS
     base += [X_COL, Y_COL, LON_T, LAT_T, SRC_COL]
     return base
+
 
 def merge_carpark_info(force_refresh=False):
     now = time.time()
@@ -384,6 +392,7 @@ def fetch_availability(force_refresh=False):
     })
     return _avail_cache
 
+
 def apply_availability(rows):
     a = fetch_availability(force_refresh=False)
     ts = a.get("timestamp", "")
@@ -459,6 +468,7 @@ def index():
         avail_ttl=AVAIL_TTL_SECONDS,
     )
 
+
 @app.route("/availability.json")
 def availability_json():
     a = fetch_availability(force_refresh=False)
@@ -468,6 +478,7 @@ def availability_json():
         for lt, (av, tot) in lots.items():
             out[cp_norm][lt] = {"available": av, "total": tot}
     return jsonify(timestamp=a.get("timestamp", ""), data=out)
+
 
 @app.route("/download.csv")
 def download_csv():
@@ -494,9 +505,11 @@ def download_csv():
         headers={"Content-Disposition": "attachment; filename=carparks_with_availability.csv"},
     )
 
+
 @app.route("/healthz")
 def healthz():
     return jsonify(ok=True)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
