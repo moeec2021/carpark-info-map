@@ -45,23 +45,20 @@ def _api_headers() -> dict:
 
 
 # ── SVY21 → WGS84 conversion ──────────────────────────────────────────────────
-# Based on the SVY21 technical reference published by SLA.
 
 def svy21_to_wgs84(northing: float, easting: float) -> tuple[float, float]:
     """Convert SVY21 (N, E) to (latitude, longitude) in WGS84."""
-    # Ellipsoid & projection constants
-    a   = 6378137.0          # semi-major axis
-    f   = 1 / 298.257223563  # flattening
+    a   = 6378137.0
+    f   = 1 / 298.257223563
     b   = a * (1 - f)
     e2  = 2 * f - f ** 2
     e_p = (a ** 2 - b ** 2) / b ** 2
 
-    # Projection origin
-    lat0 = 1.366666     # degrees
-    lon0 = 103.833333   # degrees
-    N0   = 38744.572    # false northing
-    E0   = 28001.642    # false easting
-    k0   = 1.0          # scale factor
+    lat0 = 1.366666
+    lon0 = 103.833333
+    N0   = 38744.572
+    E0   = 28001.642
+    k0   = 1.0
 
     lat0_r = lat0 * (3.14159265358979 / 180)
     lon0_r = lon0 * (3.14159265358979 / 180)
@@ -142,7 +139,6 @@ def fetch_all_records() -> list[dict]:
         offset += FETCH_LIMIT
 
     for row in all_rows:
-        # Try pre-converted lon/lat first; fall back to SVY21 conversion
         lon = safe_float(row.get("longitude"))
         lat = safe_float(row.get("latitude"))
         if lat is None or lon is None:
@@ -202,7 +198,6 @@ def fetch_availability() -> tuple[dict, str]:
         cp_no = entry.get("carpark_number", "").strip().upper()
         if not cp_no:
             continue
-        # Iterate over the nested carpark_info list
         for lot in entry.get("carpark_info", []):
             lot_type = lot.get("lot_type", "?")
             result.setdefault(cp_no, {})[lot_type] = {
@@ -306,8 +301,12 @@ def index():
 @app.route("/api/availability")
 def api_availability():
     avail, ts = get_availability()
-    carparks = {cp: summarise_availability(lots) for cp, lots in avail.items()}
-    return jsonify({"timestamp": ts, "carparks": carparks})
+    data = []
+    for cp_no, lots in avail.items():
+        summary = summarise_availability(lots)
+        summary["carpark_number"] = cp_no
+        data.append(summary)
+    return jsonify({"timestamp": ts, "data": data})
 
 
 if __name__ == "__main__":
