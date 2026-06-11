@@ -47,14 +47,14 @@
 
   <!-- Controls -->
   <div class="controls">
-    <input type="text" id="searchBox" placeholder="Search carparks…">
+    <input type="text" id="searchBox" placeholder="Search carparks…" name="searchBox">
     <button class="btn secondary" id="resetBtn">Reset</button>
     <button class="btn" id="fitBtn">Fit map to results</button>
     <button class="btn secondary" id="refreshAvailBtn">↻ Refresh availability</button>
   </div>
 
   <!-- Map -->
-  <div id="map"></div>
+  <div id="map" role="region" aria-label="Carpark map"></div>
 
   <!-- Table -->
   <div class="dataTables_wrapper">
@@ -98,6 +98,12 @@
 </div><!-- /.container -->
 
 <script>
+// ─── Hide loading overlay immediately — must be first ─────────────────────────
+// Wrapped in try/catch so a JS error elsewhere can never leave it stuck.
+try {
+  document.getElementById('loading').style.display = 'none';
+} catch (e) { /* ignore */ }
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAP_CENTER     = {{ map_center | tojson }};
 const AVAIL_ENDPOINT = "/api/availability";
@@ -367,11 +373,6 @@ $('#refreshAvailBtn').on('click', () => loadAvailability(true));
 
 // ─── Poll every 60 s ─────────────────────────────────────────────────────────
 setInterval(() => loadAvailability(false), AVAIL_POLL_MS);
-
-// ─── Hide loading overlay ─────────────────────────────────────────────────────
-// The script runs after the DOM is fully parsed (script is at end of <body>),
-// so we can hide the overlay immediately without waiting for DOMContentLoaded.
-document.getElementById('loading').style.display = 'none';
 </script>
 
 </body>
