@@ -39,7 +39,7 @@ SRC_COL = "data_source"
 CP_CANON = "carpark_no"
 CP_NORM = "carpark_no_norm"
 
-# Availability columns (Cars / Heavy / Motorcycle)
+# Availability columns (C/H/Y)
 AVAIL_TS = "availability_timestamp"
 LOTS_AVAIL_C = "lots_available_C"
 TOTAL_LOTS_C = "total_lots_C"
@@ -287,7 +287,7 @@ def normalize_record(rows):
 
 def build_columns(all_cols):
     base = [c for c in all_cols if c not in (CP_CANON, CP_NORM, X_COL, Y_COL, LON_T, LAT_T, SRC_COL, *AVAIL_COLS)]
-    base = [CP_CANON, CP_NORM] + base
+    base = [CP_CANON] + base  # keep canonical visible if you want
     base += AVAIL_COLS
     base += [X_COL, Y_COL, LON_T, LAT_T, SRC_COL]
     return base
