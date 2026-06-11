@@ -1,378 +1,377 @@
+
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ app_title }}</title>
 
+  <!-- ✅ CRITICAL: never output bare URLs or bare url_for -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <link  rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css
+  https://code.jquery.com/jquery-3.7.1.min.jsscript>
+  https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.jsscript>
+
+  <style>
+    #map {
+      height: 480px;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin: 12px 0;
+      overflow: hidden;
+    }
+
+    .maplibregl-marker {
+      transition: transform 200ms ease-out;
+      will-change: transform;
+    }
+
+    .marker {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      user-select: none;
+      cursor: pointer;
+
+      background: rgba(251,146,60,0.95); /* 🟠 no-night */
+      color: #ffffff;
+      border: 2px solid rgba(255,255,255,0.9);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      position: relative;
+    }
+
+    .marker.night { background: rgba(59,130,246,0.95) !important; } /* 🔵 night */
+
+    .marker.jtc { border-color: #ec4899 !important; color: #f472b6 !important; } /* JTC ring/number */
+
+    .marker[data-avail]:not([data-avail=""])::after {
+      content: attr(data-avail);
+      position: absolute;
+      top: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      white-space: nowrap;
+      line-height: 14px;
+      pointer-events: none;
+      color: #ffffff;
+      background: rgba(0,0,0,0.65);
+      border: 1px solid rgba(255,255,255,0.25);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.30);
+    }
+    .marker[data-avail=""]::after { display: none; }
+
+    .marker.avail-green::after { background: rgba(34,197,94,0.85) !important; }
+    .marker.avail-amber::after { background: rgba(245,158,11,0.90) !important; }
+    .marker.avail-red::after   { background: rgba(239,68,68,0.90) !important; }
+  </style>
 </head>
 
 <body>
-
-<!-- Loading overlay -->
-<div id="loading">
-  <div class="spinner"></div>
-  <span>Loading carpark data…</span>
-</div>
-
 <div class="container">
 
-  <h2>{{ app_title }}</h2>
+  <h1>{{ app_title }}</h1>
+  <div class="banner">Dataset: {{ resource_id }}</div>
 
-  <p class="meta">
-    Showing <strong id="visibleCount">0</strong> of
-    <strong>{{ total }}</strong> carparks
-    &nbsp;·&nbsp;
-    Availability as of <strong id="availTs">—</strong>
-    &nbsp;·&nbsp;
-    <a class="link"
-       href="https://data.gov.sg/datasets/d_23f946fa557947f93a8043bbef41dd09/view"
-       target="_blank" rel="noopener">Source: data.gov.sg</a>
-  </p>
-
-  <!-- Legend -->
-  <div class="avail-legend">
-    <span class="badge badge-high">High (&gt;50%)</span>
-    <span class="badge badge-mid">Medium (20–50%)</span>
-    <span class="badge badge-low">Low (&lt;20%)</span>
-    <span class="badge badge-none">No data</span>
-    <span class="avail-legend-note">Availability refreshes every 60 s</span>
+  <div class="meta">
+    <span><strong>Last fetched:</strong> {{ fetched_at }}</span>
+    <span><strong>Total records:</strong> {{ total_ckan }}</span>
   </div>
 
-  <!-- Controls -->
-  <div class="controls">
-    <input type="text" id="searchBox" placeholder="Search carparks…" name="searchBox">
-    <button class="btn secondary" id="resetBtn">Reset</button>
-    <button class="btn" id="fitBtn">Fit map to results</button>
-    <button class="btn secondary" id="refreshAvailBtn">↻ Refresh availability</button>
+  <!-- Server-side filter -->
+  <form method="get" class="filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Server-side contains filter">
+    <button type="submit">Apply server filter</button>
+    /?refresh=1{% if q %}&q={{ q }}{% endif %}Refresh cache</a>
+    /download.csv{% if q %}?q={{ q }}{% endif %}Download CSV</a>
+  </form>
+
+  <!-- Client-side search -->
+  <div class="searchbar">
+    <label>Search:</label>
+    <input id="dtSearch" type="text" placeholder="Search within table (client-side)">
+    <button id="clearSearch" type="button">Clear</button>
   </div>
 
-  <!-- Map -->
-  <div id="map" role="region" aria-label="Carpark map"></div>
+  <!-- Column toggles -->
+  <div class="toggles">
+    <span class="toggles-title">Column toggles:</span>
+    <label><input type="checkbox" class="coltoggle" data-colkey="x_coord" checked> X Coord</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="y_coord" checked> Y Coord</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lon_t_key }}" checked> Longitude (Translated)</label>
+    <label><input type="checkbox" class="coltoggle" data-colkey="{{ lat_t_key }}" checked> Latitude (Translated)</label>
+  </div>
 
-  <!-- Table -->
-  <div class="dataTables_wrapper">
-    <table id="tbl" class="display" style="width:100%">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Cars available</th>
-          <th>Heavy available</th>
-          <th>Motorcycles available</th>
-          <th>% available</th>
-          {% for c in column_keys %}
-          <th>{{ c }}</th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-        <tr data-lon="{{ r.get(lon_t_key) or '' }}"
-            data-lat="{{ r.get(lat_t_key) or '' }}"
-            data-cpno="{{ (r.get('car_park_no') or r.get('carpark_no') or '') | upper }}">
-          <td class="idx"></td>
-          <td class="av-cars"  data-order="-1">—</td>
-          <td class="av-heavy" data-order="-1">—</td>
-          <td class="av-moto"  data-order="-1">—</td>
-          <td class="av-pct"   data-order="-1">
-            <span class="pct-bar-wrap">
-              <span class="pct-bar"></span>
-              <span class="pct-label">—</span>
-            </span>
-          </td>
-          {% for c in column_keys %}
-          <td>{{ r.get(c) if r.get(c) is not none else '' }}</td>
-          {% endfor %}
-        </tr>
+  <div class="legend">
+    Availability: <strong>C/H/Y</strong> available/total (hidden if none). • Fill: 🔵 Night / 🟠 No night • JTC: pink ring+number
+  </div>
+
+  <div id="map"></div>
+
+  <table id="carparkTable" class="display">
+    <thead>
+      <tr>
+        <th data-colkey="_rownum">#</th>
+        <th data-colkey="_geo">Geocoded</th>
+        {% for c in column_keys %}
+          {% if c == lon_t_key %}
+            <th data-colkey="{{ c }}">Longitude (Translated)</th>
+          {% elif c == lat_t_key %}
+            <th data-colkey="{{ c }}">Latitude (Translated)</th>
+          {% else %}
+            <th data-colkey="{{ c }}">{{ c.replace('_',' ') | title }}</th>
+          {% endif %}
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
+      </tr>
+    </thead>
 
-</div><!-- /.container -->
+    <tbody>
+      {% for r in rows %}
+      <tr data-lon="{{ r.get(lon_t_key,'') }}" data-lat="{{ r.get(lat_t_key,'') }}">
+        <td class="col-rownum"></td>
+        <td class="col-geo"></td>
+        {% for c in column_keys %}
+          <td>{{ r.get(c, "") }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</div>
 
 <script>
-// ─── Hide loading overlay immediately — must be first ─────────────────────────
-// Wrapped in try/catch so a JS error elsewhere can never leave it stuck.
-try {
-  document.getElementById('loading').style.display = 'none';
-} catch (e) { /* ignore */ }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-const MAP_CENTER     = {{ map_center | tojson }};
-const AVAIL_ENDPOINT = "/api/availability";
-const AVAIL_POLL_MS  = 60_000;
-
-// ─── DataTable ────────────────────────────────────────────────────────────────
-const table = $('#tbl').DataTable({
-  pageLength: 25,
-  lengthMenu: [10, 25, 50, 100],
-  order: [[5, 'asc']],
-  columnDefs: [
-    { targets: 0, orderable: false, searchable: false, width: '36px' },
-    { targets: [1,2,3,4], orderDataType: 'dom-data-order', type: 'num',
-      searchable: false },
-  ],
-  language: { search: '', searchPlaceholder: 'Filter table…' },
-  drawCallback: function () {
-    let i = 1;
-    table.rows({ page: 'current' }).nodes().each(tr => {
-      tr.cells[0].textContent = i++;
-    });
-    document.getElementById('visibleCount').textContent =
-      table.rows({ search: 'applied' }).count();
+$(function () {
+  if (typeof maplibregl === 'undefined') {
+    console.error('MapLibre failed to load.');
+    return;
   }
-});
 
-// Custom sort type that reads data-order from the <td>
-$.fn.dataTable.ext.order['dom-data-order'] = function (settings, col) {
-  return this.api().column(col, { order: 'index' }).nodes().map(td =>
-    parseFloat($(td).attr('data-order') ?? -1)
-  );
-};
-
-// ─── Search ───────────────────────────────────────────────────────────────────
-$('#searchBox').on('input', function () { table.search(this.value).draw(); });
-$('#resetBtn').on('click', function () {
-  $('#searchBox').val('');
-  table.search('').draw();
-});
-
-// ─── Map ──────────────────────────────────────────────────────────────────────
-const map = new maplibregl.Map({
-  container: 'map',
-  center: MAP_CENTER,
-  zoom: 11,
-  style: {
-    version: 8,
-    sources: {
-      onemap: {
-        type: 'raster',
-        tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        attribution: '© OneMap'
-      }
-    },
-    layers: [{ id: 'base', type: 'raster', source: 'onemap' }]
-  }
-});
-map.addControl(new maplibregl.NavigationControl(), 'top-right');
-map.addControl(new maplibregl.FullscreenControl(),  'top-right');
-
-// ─── GeoJSON source for carpark markers ───────────────────────────────────────
-const allFeatures = [];
-
-document.querySelectorAll('#tbl tbody tr').forEach(tr => {
-  const lon  = parseFloat(tr.dataset.lon);
-  const lat  = parseFloat(tr.dataset.lat);
-  const cpNo = tr.dataset.cpno || '';
-  if (isNaN(lon) || isNaN(lat)) return;
-
-  const cells = Array.from(tr.cells);
-  const staticText = cells.slice(5).map((td, i) => {
-    const header = document.querySelectorAll('#tbl thead th')[i + 5];
-    return `<tr><td><b>${header ? header.textContent : ''}</b></td><td>${td.textContent}</td></tr>`;
-  }).join('');
-
-  allFeatures.push({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [lon, lat] },
-    properties: { cpNo, staticText, pct: null }
+  const table = $('#carparkTable').DataTable({
+    pageLength: 10,
+    lengthMenu: [10, 25, 50, 100],
+    scrollX: true,
+    searching: true,
+    deferRender: true,
+    dom: 'lrtip'
   });
-});
 
-const geojson = { type: 'FeatureCollection', features: allFeatures };
+  $('#dtSearch').on('input', e => table.search(e.target.value || '').draw());
+  $('#clearSearch').on('click', () => table.search('').draw());
 
-map.on('load', () => {
-  map.addSource('carparks', { type: 'geojson', data: geojson });
+  const colKeyToIndex = {};
+  $('#carparkTable thead th').each(function(i){
+    const k = $(this).attr('data-colkey');
+    if (k) colKeyToIndex[k] = i;
+  });
 
-  map.addLayer({
-    id: 'carparks-circle',
-    type: 'circle',
-    source: 'carparks',
-    paint: {
-      'circle-radius': 6,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': '#fff',
-      'circle-color': [
-        'case',
-        ['==', ['get', 'pct'], null], '#9ca3af',
-        ['>', ['get', 'pct'], 50],   '#22c55e',
-        ['>=', ['get', 'pct'], 20],  '#f59e0b',
-        '#ef4444'
-      ]
+  $('.coltoggle').on('change', function(){
+    const key = $(this).data('colkey');
+    const idx = colKeyToIndex[key];
+    if (idx !== undefined) {
+      table.column(idx).visible(this.checked);
+      table.columns.adjust().draw(false);
     }
   });
 
-  const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '320px' });
-
-  map.on('click', 'carparks-circle', e => {
-    const f    = e.features[0];
-    const prop = f.properties;
-    const cpNo = prop.cpNo;
-    const info = availData[cpNo] || {};
-
-    const availHtml = `
-      <table class="popup-avail">
-        <tr><td><b>Cars</b></td>
-            <td>${fmtLots(info.avail_cars, info.total_cars)}</td></tr>
-        <tr><td><b>Heavy</b></td>
-            <td>${fmtLots(info.avail_heavy, info.total_heavy)}</td></tr>
-        <tr><td><b>Motorcycles</b></td>
-            <td>${fmtLots(info.avail_moto, info.total_moto)}</td></tr>
-        <tr><td><b>Overall</b></td>
-            <td>${info.pct_available != null ? info.pct_available + '%' : '—'}</td></tr>
-      </table>`;
-
-    popup.setLngLat(f.geometry.coordinates)
-      .setHTML(`
-        <div class="popup-inner">
-          <h4>${cpNo}</h4>
-          <p class="popup-section-label">Live availability</p>
-          ${availHtml}
-          <p class="popup-section-label">Carpark info</p>
-          <table class="popup-static">${prop.staticText}</table>
-        </div>`)
-      .addTo(map);
+  const map = new maplibregl.Map({
+    container: 'map',
+    center: {{ map_center | tojson }},
+    zoom: 12,
+    style: {
+      version: 8,
+      sources: {
+        onemap: {
+          type: 'raster',
+          tiles: ['https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© Singapore Land Authority'
+        }
+      },
+      layers: [{ id:'base', type:'raster', source:'onemap' }]
+    }
   });
 
-  map.on('mouseenter', 'carparks-circle', () => {
-    map.getCanvas().style.cursor = 'pointer';
-  });
-  map.on('mouseleave', 'carparks-circle', () => {
-    map.getCanvas().style.cursor = '';
-  });
+  map.addControl(new maplibregl.NavigationControl());
 
-  // Initial availability load once map is ready
-  loadAvailability(false);
-});
-
-// ─── Fit map to filtered results ──────────────────────────────────────────────
-$('#fitBtn').on('click', () => {
-  const visibleCpNos = new Set(
-    table.rows({ search: 'applied' }).nodes().toArray()
-      .map(tr => tr.dataset.cpno)
-  );
-
-  const coords = allFeatures
-    .filter(f => visibleCpNos.has(f.properties.cpNo))
-    .map(f => f.geometry.coordinates);
-
-  if (!coords.length) return;
-
-  const lons = coords.map(c => c[0]);
-  const lats = coords.map(c => c[1]);
-  map.fitBounds(
-    [[Math.min(...lons), Math.min(...lats)],
-     [Math.max(...lons), Math.max(...lats)]],
-    { padding: 60, maxZoom: 16 }
-  );
-});
-
-// ─── Availability state ───────────────────────────────────────────────────────
-let availData = {};
-
-function pctClass(pct) {
-  if (pct === null || pct === undefined) return 'badge-none';
-  if (pct > 50)  return 'badge-high';
-  if (pct >= 20) return 'badge-mid';
-  return 'badge-low';
-}
-
-function fmtLots(avail, total) {
-  if (avail === null || avail === undefined) return '—';
-  return `${avail} / ${total ?? '?'}`;
-}
-
-function applyAvailabilityToTable() {
-  table.rows().every(function () {
-    const tr   = this.node();
-    const cpNo = (tr.dataset.cpno || '').toUpperCase();
-    const info = availData[cpNo] || {};
-
-    const pct = info.pct_available ?? null;
-
-    tr.cells[1].textContent = fmtLots(info.avail_cars,  info.total_cars);
-    tr.cells[1].setAttribute('data-order', info.avail_cars ?? -1);
-
-    tr.cells[2].textContent = fmtLots(info.avail_heavy, info.total_heavy);
-    tr.cells[2].setAttribute('data-order', info.avail_heavy ?? -1);
-
-    tr.cells[3].textContent = fmtLots(info.avail_moto,  info.total_moto);
-    tr.cells[3].setAttribute('data-order', info.avail_moto ?? -1);
-
-    const pctCell = tr.cells[4];
-    const bar     = pctCell.querySelector('.pct-bar');
-    const label   = pctCell.querySelector('.pct-label');
-    const cls     = pctClass(pct);
-
-    pctCell.setAttribute('data-order', pct ?? -1);
-    bar.style.width   = pct !== null ? `${Math.min(pct, 100)}%` : '0%';
-    bar.className     = `pct-bar ${cls}`;
-    label.textContent = pct !== null ? `${pct}%` : '—';
-    label.className   = `pct-label ${cls}`;
-  });
-}
-
-function applyAvailabilityToMap() {
-  if (!map.getSource('carparks')) return;
-
-  allFeatures.forEach(f => {
-    const info = availData[f.properties.cpNo] || {};
-    f.properties.pct = info.pct_available ?? null;
-  });
-
-  map.getSource('carparks').setData({
-    type: 'FeatureCollection',
-    features: allFeatures
-  });
-}
-
-// ─── Fetch availability ───────────────────────────────────────────────────────
-async function loadAvailability(showSpinner = false) {
-  const btn = document.getElementById('refreshAvailBtn');
-  if (showSpinner) {
-    btn.textContent = '↻ Refreshing…';
-    btn.disabled = true;
+  function norm(v){ return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function parseNum(x){
+    if (x === null || x === undefined) return null;
+    const s = String(x).trim();
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
   }
 
-  try {
-    const res  = await fetch(AVAIL_ENDPOINT);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
+  // indices
+  const idxSrc = colKeyToIndex['data_source'] ?? -1;
+  const idxCpNorm = colKeyToIndex['carpark_no_norm'] ?? -1;
 
-    availData = {};
-    (json.data || []).forEach(item => {
-      const key = (item.carpark_number || '').toUpperCase();
-      availData[key] = item;
+  // availability columns may exist in table even before live map is loaded
+  const idxAvailC = colKeyToIndex['lots_available_C'] ?? -1;
+  const idxTotalC = colKeyToIndex['total_lots_C'] ?? -1;
+  const idxAvailH = colKeyToIndex['lots_available_H'] ?? -1;
+  const idxTotalH = colKeyToIndex['total_lots_H'] ?? -1;
+  const idxAvailY = colKeyToIndex['lots_available_Y'] ?? -1;
+  const idxTotalY = colKeyToIndex['total_lots_Y'] ?? -1;
+
+  function findNightIdx(){
+    let idx = -1;
+    $('#carparkTable thead th').each(function(i){
+      const k = norm($(this).attr('data-colkey') || $(this).text());
+      if (k.includes('night') && k.includes('parking')) idx = i;
     });
-
-    document.getElementById('availTs').textContent =
-      json.timestamp ? new Date(json.timestamp).toLocaleTimeString() : '—';
-
-    applyAvailabilityToTable();
-    applyAvailabilityToMap();
-    table.draw(false);
-
-  } catch (err) {
-    console.error('Availability fetch failed:', err);
-  } finally {
-    btn.textContent = '↻ Refresh availability';
-    btn.disabled = false;
+    return idx;
   }
-}
+  const nightIdx = findNightIdx();
 
-// ─── Manual refresh button ────────────────────────────────────────────────────
-$('#refreshAvailBtn').on('click', () => loadAvailability(true));
+  function isNight(val){
+    const v = norm(val);
+    return ['yes','y','true','t','1'].includes(v) || v.includes('night') || v.includes('available');
+  }
+  function isJtc(val){ return norm(val) === 'jtc'; }
 
-// ─── Poll every 60 s ─────────────────────────────────────────────────────────
-setInterval(() => loadAvailability(false), AVAIL_POLL_MS);
+  let availMap = {};
+
+  function buildAvailFromMap(cpNorm){
+    if (!cpNorm) return { label: '', ratio: null };
+    const lots = availMap[cpNorm];
+    if (!lots) return { label: '', ratio: null };
+
+    const parts = [];
+    const ratios = [];
+
+    function add(letter){
+      const item = lots[letter];
+      if (!item) return;
+      const a = parseNum(item.available);
+      const t = parseNum(item.total);
+      if (a === null || t === null || t <= 0) return;
+      parts.push(`${letter} ${a}/${t}`);
+      ratios.push(a/t);
+    }
+
+    add('C'); add('H'); add('Y');
+    if (!parts.length) return { label: '', ratio: null };
+
+    let ratio = null;
+    const c = lots['C'];
+    if (c && parseNum(c.available) !== null && parseNum(c.total) !== null && parseNum(c.total) > 0) {
+      ratio = parseNum(c.available) / parseNum(c.total);
+    }
+    if (ratio === null && ratios.length) ratio = ratios.reduce((s,v)=>s+v,0)/ratios.length;
+
+    return { label: parts.join(' • '), ratio };
+  }
+
+  function levelClass(r){
+    if (r === null || !Number.isFinite(r)) return '';
+    if (r >= 0.20) return 'avail-green';
+    if (r >= 0.05) return 'avail-amber';
+    return 'avail-red';
+  }
+
+  let markers = [];
+
+  function clearMarkers(){
+    markers.forEach(m => m.remove());
+    markers = [];
+  }
+
+  function rebuildMarkers(){
+    clearMarkers();
+
+    const nodes = table.rows({ page: 'current' }).nodes().toArray();
+    let n = 1;
+
+    nodes.forEach(tr => {
+      const lon = parseFloat(tr.getAttribute('data-lon'));
+      const lat = parseFloat(tr.getAttribute('data-lat'));
+
+      tr.querySelector('.col-rownum').textContent = String(n);
+      const geo = tr.querySelector('.col-geo');
+
+      if (isNaN(lon) || isNaN(lat)) {
+        if (geo) geo.textContent = '⚠️';
+        n++;
+        return;
+      }
+      if (geo) geo.textContent = '✅';
+
+      const row = table.row(tr).data();
+      const night = (nightIdx >= 0) ? isNight(row[nightIdx]) : false;
+      const jtc = (idxSrc >= 0) ? isJtc(row[idxSrc]) : false;
+      const cpNorm = (idxCpNorm >= 0) ? String(row[idxCpNorm] || '').trim() : '';
+
+      const av = buildAvailFromMap(cpNorm);
+      const lvl = levelClass(av.ratio);
+
+      const el = document.createElement('div');
+      el.className = 'marker' + (night ? ' night' : '') + (jtc ? ' jtc' : '') + (lvl ? (' ' + lvl) : '');
+      el.textContent = String(n);
+      el.setAttribute('data-avail', av.label);
+
+      const mk = new maplibregl.Marker({ element: el })
+        .setLngLat([lon, lat])
+        .addTo(map);
+
+      markers.push(mk);
+      n++;
+    });
+  }
+
+  // ✅ IMPORTANT: single draw handler covers page/length/search/order
+  table.on('draw.dt', rebuildMarkers);
+
+  function smoothResize(){
+    map.resize();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        markers.forEach(m => {
+          const ll = m.getLngLat();
+          m.setLngLat(ll);
+        });
+        map.triggerRepaint();
+      });
+    });
+  }
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(smoothResize, 120);
+  });
+  const ro = new ResizeObserver(() => smoothResize());
+  ro.observe(document.getElementById('map'));
+
+  async function refreshAvailability(){
+    try {
+      const res = await fetch('/availability.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const payload = await res.json();
+      availMap = payload.data || {};
+      rebuildMarkers();
+    } catch (e) {}
+  }
+
+  map.on('load', async () => {
+    await refreshAvailability();
+    rebuildMarkers();
+    setInterval(refreshAvailability, {{ avail_ttl }} * 1000);
+  });
+
+});
 </script>
 
 </body>
