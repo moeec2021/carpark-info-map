@@ -5,22 +5,26 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ CORRECT ASSET TAGS -->
+  <!-- ✅ FIX 1: MUST wrap in link -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 
+  <!-- ✅ MapLibre -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- ✅ DataTables -->
   <link rel="stylesheet"
         href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <style>
     #map {
       height: 480px;
-      border-radius: 12px;
       margin: 12px 0;
+      border-radius: 12px;
     }
 
     .marker {
@@ -35,7 +39,13 @@
       background: #fb923c;
     }
 
-    .marker.night { background: #3b82f6; }
+    .marker.night {
+      background: #3b82f6;
+    }
+
+    .filter a {
+      margin-left: 12px;
+    }
   </style>
 </head>
 
@@ -45,11 +55,13 @@
 
   <h2>{{ app_title }}</h2>
 
-  <!-- ✅ FIXED FORM (NO RAW TEXT) -->
+  <!-- ✅ FIX 2: CORRECT LINKS -->
   <form method="get" class="filter">
     <input type="text" name="q" value="{{ q }}" placeholder="Server filter">
+
     <button type="submit">Apply Server Filter</button>
 
+    <!-- ✅ THESE WERE YOUR BROKEN LINES -->
     <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
       Refresh cache
     </a>
@@ -59,7 +71,6 @@
     </a>
   </form>
 
-  <!-- ✅ CLIENT SEARCH -->
   <input id="searchBox" placeholder="Search table...">
 
   <div id="map"></div>
@@ -81,11 +92,13 @@
       <tr data-lon="{{ r.get(lon_t_key,'') }}"
           data-lat="{{ r.get(lat_t_key,'') }}">
         <td></td>
+
         {% for c in column_keys %}
           {% if c != 'carpark_no_norm' %}
-            <td>{{ r.get(c, "") }}</td>
+            <td>{{ r.get(c,"") }}</td>
           {% endif %}
         {% endfor %}
+
       </tr>
       {% endfor %}
     </tbody>
@@ -98,8 +111,8 @@
 $(function(){
 
   const table = $('#tbl').DataTable({
-    pageLength: 10,
-    lengthMenu: [10,25,50,100]
+    pageLength:10,
+    lengthMenu:[10,25,50,100]
   });
 
   $('#searchBox').on('input', function(){
@@ -107,55 +120,57 @@ $(function(){
   });
 
   const map = new maplibregl.Map({
-    container: 'map',
+    container:'map',
     center: {{ map_center|tojson }},
-    zoom: 11,
-    trackResize: false, // ✅ disable resizing
-    style: {
-      version: 8,
-      sources: {
-        onemap: {
-          type: "raster",
-          tiles: ["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
-          tileSize: 256
+    zoom:11,
+    trackResize:false, // ✅ disabled resizing
+    style:{
+      version:8,
+      sources:{
+        onemap:{
+          type:"raster",
+          tiles:[
+            "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
+          ],
+          tileSize:256
         }
       },
-      layers: [
-        { id:'base', type:'raster', source:'onemap' }
+      layers:[
+        {id:'base',type:'raster',source:'onemap'}
       ]
     }
   });
 
-  let markers = [];
+  let markers=[];
 
   function rebuildMarkers(){
 
-    markers.forEach(m => m.remove());
-    markers = [];
+    markers.forEach(m=>m.remove());
+    markers=[];
 
-    const nodes = table.rows({page:'current'}).nodes().toArray();
+    const rows = table.rows({page:'current'}).nodes().toArray();
 
-    let i = 1;
+    let i=1;
 
-    nodes.forEach(tr => {
+    rows.forEach(tr=>{
 
       const lon = parseFloat(tr.dataset.lon);
       const lat = parseFloat(tr.dataset.lat);
 
-      tr.cells[0].innerText = i;
+      tr.cells[0].innerText=i;
 
-      if (isNaN(lon) || isNaN(lat)) {
+      if(isNaN(lon)||isNaN(lat)){
         i++;
         return;
       }
 
-      const el = document.createElement('div');
-      el.className = 'marker';
-      el.textContent = i;
+      const el=document.createElement('div');
+      el.className='marker';
+      el.textContent=i;
 
       markers.push(
-        new maplibregl.Marker({element: el})
-          .setLngLat([lon, lat])
+        new maplibregl.Marker({element:el})
+          .setLngLat([lon,lat])
           .addTo(map)
       );
 
@@ -164,6 +179,7 @@ $(function(){
   }
 
   table.on('draw.dt', rebuildMarkers);
+
   map.on('load', rebuildMarkers);
 
 });
@@ -172,3 +188,4 @@ $(function(){
 
 </body>
 </html>
+``
