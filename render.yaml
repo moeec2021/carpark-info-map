@@ -2,9 +2,9 @@ services:
   - type: web
     name: singapore-carpark-map
     env: python
-    pythonVersion: 3.11.9
+    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --workers 2 --timeout 120
     autoDeploy: true
     envVars:
       - key: APP_TITLE
@@ -13,11 +13,18 @@ services:
         value: d_23f946fa557947f93a8043bbef41dd09
       - key: CKAN_ACTION_BASE
         value: https://data.gov.sg/api/action
+      - key: AVAILABILITY_URL
+        value: https://api.data.gov.sg/v1/transport/carpark-availability
       - key: FETCH_LIMIT
         value: "5000"
       - key: MAX_RECORDS
         value: "20000"
       - key: CACHE_TTL_SECONDS
         value: "21600"
+      - key: AVAIL_CACHE_TTL_SECONDS
+        value: "60"
       - key: HTTP_TIMEOUT_SECONDS
         value: "20"
+      - key: DATA_GOV_API_KEY
+        value: ""          # paste your key here if you have one
+        
