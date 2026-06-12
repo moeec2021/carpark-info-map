@@ -1,233 +1,352 @@
 
 <!doctype html>
-<html filename='style.css') }}"><html lang="en">
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ app_title }}</title>
 
-<!-- ✅ MapLibre -->
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <!-- App CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-<!-- ✅ DataTables -->
-<link rel="stylesheet" href="https://cdn.datatables.net/1.13.11/css/jquery.dataTables.min.css">
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.11/js/jquery.dataTables.min.js"></script>
+  <!-- MapLibre -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-<style>
-#map-wrapper { height:480px; }
-#map { height:480px; border:1px solid #1f2937; border-radius:12px; }
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
-/* markers */
-.marker{
-  width:24px;height:24px;
-  border-radius:50%;
-  display:grid;
-  place-items:center;
-  font-size:12px;
-  font-weight:800;
-  color:white;
-  background:#f97316;
-  border:3px solid #e5e7eb;
-  position:relative;
-}
-.marker.night { background:#3b82f6; }
-.marker.jtc { border-color:#ec4899; }
+  <style>
+    /* Keep the map from shrinking below the initial size */
+    #map-wrapper {
+      display: block;
+      width: 100%;
+      height: 480px;
+      min-height: 480px;
+      flex-shrink: 0;
+      flex-grow: 0;
+    }
 
-.marker[data-avail]:not([data-avail=""])::after{
-  content:attr(data-avail);
-  position:absolute;
-  top:28px;
-  left:50%;
-  transform:translateX(-50%);
-  background:#16a34a;
-  color:white;
-  font-size:10px;
-  padding:2px 6px;
-  border-radius:6px;
-}
+    #map {
+      display: block;
+      width: 100%;
+      height: 480px;
+      min-height: 480px !important;
+      max-height: 480px !important;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      overflow: hidden;
+      box-sizing: border-box;
+      margin: 12px 0;
+    }
 
-/* legend */
-.legend { display:flex; gap:16px; margin:10px 0; }
-.legend-marker {
-  width:16px;height:16px;
-  border-radius:50%;
-  border:3px solid #e5e7eb;
-  display:inline-block;
-}
-.legend-blue{ background:#3b82f6; }
-.legend-orange{ background:#f97316; }
-.legend-jtc{ border-color:#ec4899; }
-</style>
+    /* Marker styles */
+    .marker {
+      width: 24px;
+      height: 24px;
+      min-width: 24px;
+      min-height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+      background: #f97316;       /* orange = no night parking */
+      border: 3px solid #e5e7eb; /* off-white ring = HDB */
+      position: relative;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      user-select: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .marker.night {
+      background: #3b82f6;       /* blue = night parking */
+    }
+
+    .marker.jtc {
+      border-color: #ec4899;     /* pink ring = JTC */
+      color: #f472b6;
+    }
+
+    /* Availability label */
+    .marker[data-avail]:not([data-avail=""])::after {
+      content: attr(data-avail);
+      position: absolute;
+      top: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #16a34a; /* green */
+      color: #fff;
+      white-space: nowrap;
+      line-height: 1.2;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+
+    .marker[data-avail=""]::after {
+      display: none;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-marker {
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      min-height: 16px;
+      border-radius: 50%;
+      border: 3px solid #e5e7eb;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .legend-orange { background: #f97316; }
+    .legend-blue   { background: #3b82f6; }
+    .legend-jtc    { border-color: #ec4899; }
+
+    .hint {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-left: 6px;
+    }
+
+    .filter a {
+      margin-left: 12px;
+    }
+  </style>
 </head>
-
 <body>
 
 <div class="container">
 
-<h2>{{ app_title }}</h2>
+  <h2>{{ app_title }}</h2>
 
-<!-- ✅ FILTER FORM -->
-<form method="get">
-  <input name="q" value="{{ q }}" placeholder="Search ALL carparks">
-  <button type="submit">Load & Filter Dataset</button>
+  <!-- Server-side filter -->
+  <form method="get" class="filter">
+    <input
+      type="text"
+      name="q"
+      value="{{ q }}"
+      placeholder="Search ALL carparks (server-side filter)"
+    >
 
-  <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
-  <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
-</form>
+    <button type="submit">Load &amp; Filter Dataset</button>
+    <span class="hint">Filters data before loading</span>
 
-<input id="searchBox" placeholder="Filter displayed results instantly">
+    <a href="/?refresh=1{% if q %}&amp;q={{ q }}{% endif %}">Refresh cache</a>
+    <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
+  </form>
 
-<!-- ✅ LEGEND -->
-<div class="legend">
-  <div><span class="legend-marker legend-blue"></span> Night</div>
-  <div><span class="legend-marker legend-orange"></span> No Night</div>
-  <div><span class="legend-marker"></span> HDB</div>
-  <div><span class="legend-marker legend-jtc"></span> JTC</div>
-</div>
+  <!-- Client-side filter -->
+  <input
+    id="searchBox"
+    placeholder="Filter displayed results instantly (table + map)"
+  >
 
-<div id="map-wrapper"><div id="map"></div></div>
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item">
+      <span class="legend-marker legend-blue"></span>
+      Night Parking
+    </div>
 
-<!-- ✅ TABLE -->
-<table id="tbl" class="display">
+    <div class="legend-item">
+      <span class="legend-marker legend-orange"></span>
+      No Night Parking
+    </div>
 
-<thead>
-<tr>
-<th>#</th>
-{% for c in column_keys %}
-{% if c not in ['carpark_no_norm','carpark_no'] %}
-<th>{{ c }}</th>
-{% endif %}
-{% endfor %}
-</tr>
-</thead>
+    <div class="legend-item">
+      <span class="legend-marker"></span>
+      HDB Carpark
+    </div>
 
-<tbody>
-{% for r in rows %}
-<tr
-data-lon="{{ r.get(lon_t_key) }}"
-data-lat="{{ r.get(lat_t_key) }}"
-data-cpnorm="{{ r.get('carpark_no_norm') }}"
-data-src="{{ r.get('data_source','') }}"
-data-night="{{ r.get('night_parking','') }}"
->
-<td></td>
-{% for c in column_keys %}
-{% if c not in ['carpark_no_norm','carpark_no'] %}
-<td>{{ r.get(c,'') }}</td>
-{% endif %}
-{% endfor %}
-</tr>
-{% endfor %}
-</tbody>
+    <div class="legend-item">
+      <span class="legend-marker legend-jtc"></span>
+      JTC Carpark
+    </div>
+  </div>
 
-</table>
+  <!-- Map -->
+  <div id="map-wrapper">
+    <div id="map"></div>
+  </div>
+
+  <!-- Table -->
+  <table id="tbl" class="display">
+    <thead>
+      <tr>
+        <th>#</th>
+        {% for c in column_keys %}
+          {% if c not in ['carpark_no_norm', 'carpark_no'] %}
+            <th>{{ c }}</th>
+          {% endif %}
+        {% endfor %}
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for r in rows %}
+      <tr
+        data-lon="{{ r.get(lon_t_key) }}"
+        data-lat="{{ r.get(lat_t_key) }}"
+        data-cpnorm="{{ r.get('carpark_no_norm') }}"
+        data-src="{{ r.get('data_source','') }}"
+        data-night="{{ r.get('night_parking','') }}"
+      >
+        <td></td>
+        {% for c in column_keys %}
+          {% if c not in ['carpark_no_norm', 'carpark_no'] %}
+            <td>{{ r.get(c, '') }}</td>
+          {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
 </div>
 
 <script>
-$(function(){
+$(function() {
 
-const table = $('#tbl').DataTable({
-  pageLength:10,
-  lengthMenu:[10,25,50,100]
-});
-
-/* search */
-$('#searchBox').on('input', function(){
-  table.search(this.value).draw();
-});
-
-/* map */
-const map = new maplibregl.Map({
-  container:'map',
-  center:{{ map_center|tojson }},
-  zoom:11,
-  trackResize:false,
-  style:{
-    version:8,
-    sources:{
-      onemap:{
-        type:"raster",
-        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
-        tileSize:256
-      }
-    },
-    layers:[{id:'base',type:'raster',source:'onemap'}]
-  }
-});
-
-let markers=[];
-let availMap={};
-
-/* availability */
-async function loadAvailability(){
-  const res = await fetch('/availability.json');
-  const json = await res.json();
-  availMap = json.data || {};
-}
-
-function buildAvail(cp){
-  const lots=availMap[cp];
-  if(!lots) return "";
-  let p=[];
-  if(lots.C?.available!=null) p.push(`C:${lots.C.available}`);
-  if(lots.H?.available!=null) p.push(`H:${lots.H.available}`);
-  if(lots.Y?.available!=null) p.push(`Y:${lots.Y.available}`);
-  return p.join(" ");
-}
-
-/* ✅ CORE SYNC FIX */
-function rebuildMarkers(){
-
-  markers.forEach(m=>m.remove());
-  markers=[];
-
-  const rows = table.rows({page:'current'}).nodes().toArray();
-  const start = table.page.info().start;
-
-  rows.forEach((tr, idx)=>{
-
-    const rowNum = start + idx + 1;
-    tr.cells[0].innerText=rowNum;
-
-    const lon=parseFloat(tr.dataset.lon);
-    const lat=parseFloat(tr.dataset.lat);
-    if(isNaN(lon)||isNaN(lat)) return;
-
-    const el=document.createElement('div');
-    el.className='marker';
-
-    if((tr.dataset.night||'').toUpperCase()==='Y'){
-      el.classList.add('night');
-    }
-    if((tr.dataset.src||'').toUpperCase()==='JTC'){
-      el.classList.add('jtc');
-    }
-
-    el.setAttribute('data-avail', buildAvail(tr.dataset.cpnorm));
-    el.textContent=rowNum;
-
-    markers.push(
-      new maplibregl.Marker({element:el})
-        .setLngLat([lon,lat])
-        .addTo(map)
-    );
+  const table = $('#tbl').DataTable({
+    pageLength: 10,
+    lengthMenu: [10, 25, 50, 100]
   });
-}
 
-/* ✅ THIS IS THE REAL FIX */
-table.on('draw.dt', ()=>{
-  requestAnimationFrame(rebuildMarkers);
-});
+  // Client-side search
+  $('#searchBox').on('input', function() {
+    table.search(this.value).draw();
+  });
 
-/* init */
-map.on('load', async()=>{
-  await loadAvailability();
-  rebuildMarkers();
+  // Map
+  if (typeof maplibregl === 'undefined') {
+    console.error('MapLibre failed to load.');
+    return;
+  }
 
-  setInterval(async()=>{
+  const map = new maplibregl.Map({
+    container: 'map',
+    center: {{ map_center | tojson }},
+    zoom: 11,
+    trackResize: true,
+    style: {
+      version: 8,
+      sources: {
+        onemap: {
+          type: 'raster',
+          tiles: [
+            "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
+          ],
+          tileSize: 256
+        }
+      },
+      layers: [
+        { id: 'base', type: 'raster', source: 'onemap' }
+      ]
+    }
+  });
+
+  let markers = [];
+  let availMap = {};
+
+  async function loadAvailability() {
+    try {
+      const res = await fetch('/availability.json');
+      const json = await res.json();
+      availMap = json.data || {};
+    } catch (e) {
+      console.error('Availability load failed', e);
+    }
+  }
+
+  function buildAvail(cpNorm) {
+    const lots = availMap[cpNorm];
+    if (!lots) return "";
+
+    const parts = [];
+    if (lots.C && lots.C.available != null) parts.push(`C:${lots.C.available}`);
+    if (lots.H && lots.H.available != null) parts.push(`H:${lots.H.available}`);
+    if (lots.Y && lots.Y.available != null) parts.push(`Y:${lots.Y.available}`);
+
+    return parts.join(" ");
+  }
+
+  function rebuildMarkers() {
+    markers.forEach(m => m.remove());
+    markers = [];
+
+    // Sync locators to the rows CURRENTLY DISPLAYED in the data table page
+    const rows = table.rows({ page: 'current' }).nodes().toArray();
+    const pageInfo = table.page.info();
+    const start = pageInfo.start;
+
+    rows.forEach((tr, idx) => {
+      const rowNum = start + idx + 1;
+      tr.cells[0].innerText = rowNum;
+
+      const lon = parseFloat(tr.dataset.lon);
+      const lat = parseFloat(tr.dataset.lat);
+      if (isNaN(lon) || isNaN(lat)) return;
+
+      const el = document.createElement('div');
+      el.className = 'marker';
+
+      const night = (tr.dataset.night || '').toUpperCase();
+      const src = (tr.dataset.src || '').toUpperCase();
+
+      if (night === 'Y' || night === 'YES') {
+        el.classList.add('night');
+      }
+      if (src === 'JTC') {
+        el.classList.add('jtc');
+      }
+
+      const cpNorm = tr.dataset.cpnorm;
+      el.setAttribute('data-avail', buildAvail(cpNorm));
+      el.textContent = rowNum;
+
+      markers.push(
+        new maplibregl.Marker({ element: el })
+          .setLngLat([lon, lat])
+          .addTo(map)
+      );
+    });
+  }
+
+  // Critical sync: rebuild after DataTables finishes drawing the DOM
+  table.on('draw.dt', function() {
+    requestAnimationFrame(rebuildMarkers);
+  });
+
+  map.on('load', async () => {
     await loadAvailability();
     rebuildMarkers();
-  },60000);
-});
+
+    setInterval(async () => {
+      await loadAvailability();
+      rebuildMarkers();
+    }, 60000);
+  });
 
 });
 </script>
