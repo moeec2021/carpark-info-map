@@ -1,36 +1,28 @@
 
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>{{ app_title }}</title>
-
-<!-- ✅ correct css -->
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+="{{ url_for('static', filename='style.css') }}"><html lang="en">
 
 <!-- ✅ MapLibre -->
-<link rel="stylesheet"
-      href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <!-- ✅ DataTables -->
 <link rel="stylesheet"
       href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
 <style>
 
 /* ===== MAP ===== */
-#map-wrapper{ height:480px; }
+#map-wrapper { height:480px; }
 #map {
   height:480px;
   border-radius:12px;
   border:1px solid #1f2937;
 }
 
-/* ===== MARKERS ===== */
+/* ===== MARKER ===== */
 .marker{
   width:24px;height:24px;
   border-radius:50%;
@@ -39,17 +31,14 @@
   font-size:12px;
   font-weight:800;
   color:white;
-
   background:#f97316; /* orange */
   border:3px solid #e5e7eb;
-
   position:relative;
 }
-
 .marker.night{ background:#3b82f6; }
 .marker.jtc{ border-color:#ec4899; }
 
-/* ===== AVAILABILITY ===== */
+/* availability */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
   position:absolute;
@@ -64,8 +53,6 @@
   font-weight:700;
 }
 
-.marker[data-avail=""]::after{ display:none; }
-
 /* ===== LEGEND ===== */
 .legend{ display:flex; gap:16px; margin:10px 0; }
 
@@ -75,12 +62,11 @@
   border:3px solid #e5e7eb;
   display:inline-block;
 }
-
 .legend-blue{ background:#3b82f6; }
 .legend-orange{ background:#f97316; }
 .legend-jtc{ border-color:#ec4899; }
 
-.filter a{ margin-left:12px; }
+.filter a { margin-left:12px; }
 
 </style>
 </head>
@@ -92,7 +78,10 @@
 <h2>{{ app_title }}</h2>
 
 <form method="get" class="filter">
-<input name="q" value="{{ q }}" placeholder="Search ALL carparks (server filter)">
+
+<input name="q" value="{{ q }}"
+       placeholder="Search ALL carparks (server filter)">
+
 <button type="submit">Load & Filter Dataset</button>
 
 <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
@@ -102,6 +91,7 @@
 <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">
   Download CSV
 </a>
+
 </form>
 
 <input id="searchBox"
@@ -119,8 +109,9 @@
   <div id="map"></div>
 </div>
 
-<!-- ✅ FIXED TABLE -->
+<!-- ✅ TABLE FIXED -->
 <table id="tbl" class="display">
+
 <thead>
 <tr>
 <th>#</th>
@@ -136,11 +127,13 @@
 
 <tbody>
 {% for r in rows %}
-<tr data-lon="{{ r.get(lon_t_key) }}"
-    data-lat="{{ r.get(lat_t_key) }}"
-    data-cpnorm="{{ r.get('carpark_no_norm') }}"
-    data-src="{{ r.get('data_source','') }}"
-    data-night="{{ r.get('night_parking','') }}">
+<tr
+  data-lon="{{ r.get(lon_t_key) }}"
+  data-lat="{{ r.get(lat_t_key) }}"
+  data-cpnorm="{{ r.get('carpark_no_norm') }}"
+  data-src="{{ r.get('data_source','') }}"
+  data-night="{{ r.get('night_parking','') }}"
+>
 
 <td></td>
 
@@ -153,6 +146,7 @@
 </tr>
 {% endfor %}
 </tbody>
+
 </table>
 
 </div>
@@ -167,7 +161,7 @@ const table = $('#tbl').DataTable({
 });
 
 /* search */
-$('#searchBox').on('input',function(){
+$('#searchBox').on('input', function(){
   table.search(this.value).draw();
 });
 
@@ -182,7 +176,9 @@ const map=new maplibregl.Map({
     sources:{
       onemap:{
         type:"raster",
-        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
+        tiles:[
+          "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
+        ],
         tileSize:256
       }
     },
@@ -193,7 +189,7 @@ const map=new maplibregl.Map({
 let markers=[];
 let availMap={};
 
-/* ✅ availability loader */
+/* load availability */
 async function loadAvailability(){
   try{
     const res=await fetch('/availability.json');
@@ -204,7 +200,7 @@ async function loadAvailability(){
   }
 }
 
-/* ✅ build label */
+/* build label */
 function buildAvail(cp){
   const lots=availMap[cp];
   if(!lots) return "";
@@ -217,19 +213,19 @@ function buildAvail(cp){
   return parts.join(" ");
 }
 
-/* ✅ marker rebuild */
+/* ✅ CRITICAL: FULL SYNC WITH TABLE */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
   markers=[];
 
-  const rows = table.rows({ page:'current' }).nodes().toArray();
+  const rows = table.rows({ page:'current' }).nodes();
   const start = table.page.info().start;
 
-  rows.forEach((tr, idx)=>{
+  rows.each(function(tr, idx){
 
     const rowNum = start + idx + 1;
-    tr.cells[0].innerText = rowNum;
+    $('td:eq(0)', tr).html(rowNum);
 
     const lon=parseFloat(tr.dataset.lon);
     const lat=parseFloat(tr.dataset.lat);
@@ -256,9 +252,9 @@ function rebuildMarkers(){
   });
 }
 
-/* ✅ sync */
-table.on('draw.dt page.dt length.dt search.dt order.dt', ()=>{
-  setTimeout(rebuildMarkers,50);
+/* ✅ key fix: correct timing */
+table.on('draw.dt', function(){
+  requestAnimationFrame(rebuildMarkers);
 });
 
 /* init */
@@ -278,3 +274,8 @@ map.on('load', async()=>{
 
 </body>
 </html>
+<head>
+<meta charset="utf-8">
+<title>{{ app_title }}</title>
+
+<!-- ✅ correct css -->
