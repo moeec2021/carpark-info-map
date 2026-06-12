@@ -5,13 +5,13 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ CORRECT CSS (fixes /static/style.css issue) -->
-  {{ url_for('static', filename='style.css') }}
+  <!-- ✅ CORRECT CSS (FIXES /static/style.css ISSUE) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
   <!-- ✅ MapLibre -->
   <link rel="stylesheet"
         href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/script>
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <!-- ✅ DataTables -->
   <link rel="stylesheet"
@@ -23,8 +23,8 @@
   <style>
     #map {
       height: 480px;
-      border-radius: 12px;
       margin: 12px 0;
+      border-radius: 12px;
     }
 
     .marker {
@@ -69,23 +69,23 @@
 
   <h2>{{ app_title }}</h2>
 
-  <!-- ✅ FIXED FORM (no stray text anymore) -->
+  <!-- ✅ CLEAN, CORRECT FORM -->
   <form method="get" class="filter">
     <input type="text" name="q" value="{{ q }}" placeholder="Server filter">
 
     <button type="submit">Apply Server Filter</button>
 
-    <!-- ✅ PROPER LINKS -->
-    /?refresh=1{% if q %}&q={{ q }}{% endif %}
+    <!-- ✅ PROPER LINKS (THIS FIXES YOUR TEXT ISSUE) -->
+    <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
       Refresh cache
     </a>
 
-    /download.csv{% if q %}?q={{ q }}{% endif %}
+    <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">
       Download CSV
     </a>
   </form>
 
-  <!-- ✅ Client search -->
+  <!-- ✅ CLIENT SEARCH -->
   <input id="searchBox" placeholder="Search table...">
 
   <div id="map"></div>
@@ -114,6 +114,7 @@
             <td>{{ r.get(c,"") }}</td>
           {% endif %}
         {% endfor %}
+
       </tr>
       {% endfor %}
     </tbody>
@@ -130,12 +131,12 @@ $(function(){
     lengthMenu:[10,25,50,100]
   });
 
-  // ✅ client search
+  // ✅ CLIENT SEARCH
   $('#searchBox').on('input', function(){
     table.search(this.value).draw();
   });
 
-  // ✅ map (no resizing allowed)
+  // ✅ MAP (resizing disabled)
   const map = new maplibregl.Map({
     container:'map',
     center: {{ map_center|tojson }},
@@ -146,11 +147,15 @@ $(function(){
       sources:{
         onemap:{
           type:"raster",
-          tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
+          tiles:[
+            "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
+          ],
           tileSize:256
         }
       },
-      layers:[{id:'base',type:'raster',source:'onemap'}]
+      layers:[
+        {id:'base',type:'raster',source:'onemap'}
+      ]
     }
   });
 
@@ -171,7 +176,6 @@ $(function(){
     markers=[];
 
     const rows = table.rows({page:'current'}).nodes().toArray();
-
     let i=1;
 
     rows.forEach(tr=>{
@@ -187,17 +191,17 @@ $(function(){
       }
 
       const el=document.createElement('div');
-
-      let cls='marker';
+      el.className='marker';
 
       const cp = tr.dataset.cpnorm;
       const av = availMap[cp];
 
       if(av && av.C){
         el.setAttribute('data-avail',`C ${av.C.available}/${av.C.total}`);
+      } else {
+        el.setAttribute('data-avail','');
       }
 
-      el.className=cls;
       el.textContent=i;
 
       markers.push(
