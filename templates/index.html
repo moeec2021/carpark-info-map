@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ CORRECT CSS (FIXES /static/style.css ISSUE) -->
+  <!-- ✅ FIXED CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
   <!-- ✅ MapLibre -->
@@ -21,45 +21,19 @@
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
   <style>
-    #map {
-      height: 480px;
-      margin: 12px 0;
-      border-radius: 12px;
-    }
+    #map { height: 480px; margin: 12px 0; border-radius: 12px; }
 
     .marker {
-      width: 24px;
-      height: 24px;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      font-weight: 800;
-      font-size: 12px;
-      color: white;
-      background: #fb923c;
+      width: 24px; height: 24px; border-radius: 999px;
+      display: grid; place-items: center;
+      font-weight: 800; font-size: 12px;
+      color: white; background: #fb923c;
       border: 2px solid white;
-      position: relative;
     }
 
     .marker.night { background: #3b82f6; }
-    .marker.jtc { border-color: #ec4899; color: #f472b6; }
 
-    .marker[data-avail]:not([data-avail=""])::after {
-      content: attr(data-avail);
-      position: absolute;
-      top: 26px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 6px;
-      background: black;
-      color: white;
-    }
-
-    .filter a {
-      margin-left: 12px;
-    }
+    .filter a { margin-left: 12px; }
   </style>
 </head>
 
@@ -69,13 +43,11 @@
 
   <h2>{{ app_title }}</h2>
 
-  <!-- ✅ CLEAN, CORRECT FORM -->
+  <!-- ✅ FIXED LINKS -->
   <form method="get" class="filter">
     <input type="text" name="q" value="{{ q }}" placeholder="Server filter">
-
     <button type="submit">Apply Server Filter</button>
 
-    <!-- ✅ PROPER LINKS (THIS FIXES YOUR TEXT ISSUE) -->
     <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
       Refresh cache
     </a>
@@ -85,7 +57,6 @@
     </a>
   </form>
 
-  <!-- ✅ CLIENT SEARCH -->
   <input id="searchBox" placeholder="Search table...">
 
   <div id="map"></div>
@@ -94,8 +65,9 @@
     <thead>
       <tr>
         <th>#</th>
+
         {% for c in column_keys %}
-          {% if c != 'carpark_no_norm' %}
+          {% if c not in ['carpark_no_norm', 'carpark_no'] %}
             <th>{{ c }}</th>
           {% endif %}
         {% endfor %}
@@ -110,7 +82,7 @@
         <td></td>
 
         {% for c in column_keys %}
-          {% if c != 'carpark_no_norm' %}
+          {% if c not in ['carpark_no_norm', 'carpark_no'] %}
             <td>{{ r.get(c,"") }}</td>
           {% endif %}
         {% endfor %}
@@ -131,12 +103,10 @@ $(function(){
     lengthMenu:[10,25,50,100]
   });
 
-  // ✅ CLIENT SEARCH
   $('#searchBox').on('input', function(){
     table.search(this.value).draw();
   });
 
-  // ✅ MAP (resizing disabled)
   const map = new maplibregl.Map({
     container:'map',
     center: {{ map_center|tojson }},
@@ -147,28 +117,15 @@ $(function(){
       sources:{
         onemap:{
           type:"raster",
-          tiles:[
-            "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
-          ],
+          tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
           tileSize:256
         }
       },
-      layers:[
-        {id:'base',type:'raster',source:'onemap'}
-      ]
+      layers:[{id:'base',type:'raster',source:'onemap'}]
     }
   });
 
   let markers=[];
-  let availMap={};
-
-  async function loadAvailability(){
-    try{
-      const r = await fetch('/availability.json');
-      const j = await r.json();
-      availMap = j.data || {};
-    }catch{}
-  }
 
   function rebuildMarkers(){
 
@@ -176,32 +133,19 @@ $(function(){
     markers=[];
 
     const rows = table.rows({page:'current'}).nodes().toArray();
+
     let i=1;
 
     rows.forEach(tr=>{
-
       const lon = parseFloat(tr.dataset.lon);
       const lat = parseFloat(tr.dataset.lat);
 
       tr.cells[0].innerText=i;
 
-      if(isNaN(lon)||isNaN(lat)){
-        i++;
-        return;
-      }
+      if(isNaN(lon)||isNaN(lat)){ i++; return; }
 
       const el=document.createElement('div');
       el.className='marker';
-
-      const cp = tr.dataset.cpnorm;
-      const av = availMap[cp];
-
-      if(av && av.C){
-        el.setAttribute('data-avail',`C ${av.C.available}/${av.C.total}`);
-      } else {
-        el.setAttribute('data-avail','');
-      }
-
       el.textContent=i;
 
       markers.push(
@@ -215,11 +159,7 @@ $(function(){
   }
 
   table.on('draw.dt', rebuildMarkers);
-
-  map.on('load', async ()=>{
-    await loadAvailability();
-    rebuildMarkers();
-  });
+  map.on('load', rebuildMarkers);
 
 });
 
