@@ -5,37 +5,50 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
-<!-- ✅ FIXED: proper CSS loading -->
+<!-- ✅ Correct stylesheet -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-<!-- ✅ MapLibre -->
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
-<!-- ✅ DataTables -->
-<link rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <style>
-#map-wrapper { height:480px; }
-#map { height:480px; border-radius:12px; }
 
-/* markers */
+/* ✅ Circle markers */
 .marker{
-  width:24px;height:24px;border-radius:50%;
-  display:grid;place-items:center;
-  font-size:12px;font-weight:800;
+  width:24px;
+  height:24px;
+
+  /* ✅ STRICTLY FORCE CIRCLE */
+  border-radius:50% !important;
+
+  display:grid;
+  place-items:center;
+
+  font-size:12px;
+  font-weight:800;
   color:white;
-  background:#f97316; /* orange */
+
+  background:#f97316; /* orange = no night */
   border:3px solid #e5e7eb; /* HDB */
+
+  position:relative;
 }
 
-.marker.night{ background:#3b82f6; }
-.marker.jtc{ border-color:#ec4899; }
+/* blue for night */
+.marker.night{
+  background:#3b82f6;
+}
 
-/* availability */
+/* ✅ JTC = pink ring ONLY (STILL CIRCLE) */
+.marker.jtc{
+  border-color:#ec4899;
+}
+
+/* availability label */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
   position:absolute;
@@ -47,11 +60,27 @@
   border-radius:6px;
   background:#16a34a;
   color:white;
-  font-weight:700;
 }
 
 /* legend */
-.legend{ display:flex; gap:16px; margin:10px 0; }
+.legend{
+  display:flex;
+  gap:16px;
+  margin:10px 0;
+}
+.legend-marker{
+  width:16px;
+  height:16px;
+  border-radius:50%; /* ✅ ensure circle */
+  border:3px solid #e5e7eb;
+}
+.legend-orange{ background:#f97316; }
+.legend-blue{ background:#3b82f6; }
+.legend-jtc{ border-color:#ec4899; }
+
+#map-wrapper{ height:480px; }
+#map{ height:480px;border-radius:12px;}
+
 </style>
 </head>
 
@@ -71,11 +100,12 @@
 
 <input id="searchBox" placeholder="Filter displayed results instantly">
 
+<!-- ✅ UPDATED LEGEND (no heart icon) -->
 <div class="legend">
-  <div>🔵 Night</div>
-  <div>🟠 No Night</div>
-  <div>⚪ HDB</div>
-  <div>💗 JTC</div>
+  <div><span class="legend-marker legend-blue"></span> Night</div>
+  <div><span class="legend-marker legend-orange"></span> No Night</div>
+  <div><span class="legend-marker"></span> HDB</div>
+  <div><span class="legend-marker legend-jtc"></span> JTC</div>
 </div>
 
 <div id="map-wrapper"><div id="map"></div></div>
@@ -96,137 +126,3 @@
 {% for r in rows %}
 <tr data-lon="{{ r.get(lon_t_key) }}"
     data-lat="{{ r.get(lat_t_key) }}"
-    data-cpnorm="{{ r.get('carpark_no_norm') }}"
-    data-src="{{ r.get('data_source','') }}"
-    data-night="{{ r.get('night_parking','') }}">
-<td></td>
-
-{% for c in column_keys %}
-{% if c not in ['carpark_no_norm','carpark_no'] %}
-<td>{{ r.get(c) }}</td>
-{% endif %}
-{% endfor %}
-</tr>
-{% endfor %}
-</tbody>
-</table>
-
-</div>
-
-<script>
-$(function(){
-
-const table = $('#tbl').DataTable({
-  pageLength:10,
-  lengthMenu:[10,25,50,100]
-});
-
-/* search */
-$('#searchBox').on('input',function(){
-  table.search(this.value).draw();
-});
-
-/* map */
-const map=new maplibregl.Map({
-  container:'map',
-  center:{{ map_center|tojson }},
-  zoom:11,
-  trackResize:false,
-  style:{
-    version:8,
-    sources:{
-      onemap:{ type:"raster",
-        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
-        tileSize:256 }
-    },
-    layers:[{id:'base',type:'raster',source:'onemap'}]
-  }
-});
-
-let markers=[];
-let availMap={};
-
-/* availability */
-async function loadAvailability(){
-  try{
-    const r=await fetch('/availability.json');
-    const j=await r.json();
-    availMap=j.data||{};
-  }catch{}
-}
-
-function buildAvail(cp){
-  const lots=availMap[cp];
-  if(!lots) return "";
-
-  let p=[];
-  if(lots.C?.available!=null) p.push(`C:${lots.C.available}`);
-  if(lots.H?.available!=null) p.push(`H:${lots.H.available}`);
-  if(lots.Y?.available!=null) p.push(`Y:${lots.Y.available}`);
-
-  return p.join(" ");
-}
-
-/* ✅ FINAL FIX: ALWAYS SYNC WITH CURRENT PAGE */
-function rebuildMarkers(){
-
-  markers.forEach(m=>m.remove());
-  markers=[];
-
-  const rows = table.rows({ page:'current' }).nodes().toArray();
-  const start = table.page.info().start;
-
-  rows.forEach((tr,idx)=>{
-
-    const rowNum = start + idx + 1;
-
-    const lon=parseFloat(tr.dataset.lon);
-    const lat=parseFloat(tr.dataset.lat);
-
-    /* ✅ always correct numbering */
-    tr.cells[0].innerText=rowNum;
-
-    if(isNaN(lon)||isNaN(lat)) return;
-
-    const el=document.createElement('div');
-    el.className='marker';
-
-    const night=(tr.dataset.night||'').toUpperCase();
-    const src=(tr.dataset.src||'').toUpperCase();
-
-    if(night==='Y'||night==='YES') el.classList.add('night');
-    if(src==='JTC') el.classList.add('jtc');
-
-    el.setAttribute('data-avail',buildAvail(tr.dataset.cpnorm));
-    el.textContent=rowNum;
-
-    markers.push(
-      new maplibregl.Marker({element:el})
-        .setLngLat([lon,lat])
-        .addTo(map)
-    );
-  });
-}
-
-/* ✅ CRITICAL: cover ALL redraw scenarios */
-table.on('draw.dt page.dt length.dt search.dt order.dt', function(){
-  setTimeout(rebuildMarkers,0);
-});
-
-/* init */
-map.on('load',async()=>{
-  await loadAvailability();
-  rebuildMarkers();
-
-  setInterval(async()=>{
-    await loadAvailability();
-    rebuildMarkers();
-  },60000);
-});
-
-});
-</script>
-
-</body>
-</html>
-
