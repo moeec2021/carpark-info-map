@@ -1,39 +1,35 @@
 
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>{{ app_title }}</title>
-
-<!-- ✅ CSS -->
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<html filename='style.css') }}"><html lang="en">
 
 <!-- ✅ MapLibre -->
-link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <!-- ✅ DataTables -->
-<link rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.11/css/jquery.dataTables.min.css">
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.11/js/jquery.dataTables.min.js"></script>
 
 <style>
 #map-wrapper { height:480px; }
-#map { height:480px; border-radius:12px; border:1px solid #1f2937; }
+#map { height:480px; border:1px solid #1f2937; border-radius:12px; }
 
+/* markers */
 .marker{
   width:24px;height:24px;
   border-radius:50%;
-  display:grid;place-items:center;
-  font-size:12px;font-weight:800;
-  color:white;background:#f97316;
+  display:grid;
+  place-items:center;
+  font-size:12px;
+  font-weight:800;
+  color:white;
+  background:#f97316;
   border:3px solid #e5e7eb;
   position:relative;
 }
-.marker.night{ background:#3b82f6; }
-.marker.jtc{ border-color:#ec4899; }
+.marker.night { background:#3b82f6; }
+.marker.jtc { border-color:#ec4899; }
 
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
@@ -47,6 +43,18 @@ link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl
   padding:2px 6px;
   border-radius:6px;
 }
+
+/* legend */
+.legend { display:flex; gap:16px; margin:10px 0; }
+.legend-marker {
+  width:16px;height:16px;
+  border-radius:50%;
+  border:3px solid #e5e7eb;
+  display:inline-block;
+}
+.legend-blue{ background:#3b82f6; }
+.legend-orange{ background:#f97316; }
+.legend-jtc{ border-color:#ec4899; }
 </style>
 </head>
 
@@ -56,10 +64,28 @@ link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl
 
 <h2>{{ app_title }}</h2>
 
+<!-- ✅ FILTER FORM -->
+<form method="get">
+  <input name="q" value="{{ q }}" placeholder="Search ALL carparks">
+  <button type="submit">Load & Filter Dataset</button>
+
+  <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
+  <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
+</form>
+
 <input id="searchBox" placeholder="Filter displayed results instantly">
+
+<!-- ✅ LEGEND -->
+<div class="legend">
+  <div><span class="legend-marker legend-blue"></span> Night</div>
+  <div><span class="legend-marker legend-orange"></span> No Night</div>
+  <div><span class="legend-marker"></span> HDB</div>
+  <div><span class="legend-marker legend-jtc"></span> JTC</div>
+</div>
 
 <div id="map-wrapper"><div id="map"></div></div>
 
+<!-- ✅ TABLE -->
 <table id="tbl" class="display">
 
 <thead>
@@ -76,14 +102,13 @@ link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl
 <tbody>
 {% for r in rows %}
 <tr
-  data-lon="{{ r.get(lon_t_key) }}"
-  data-lat="{{ r.get(lat_t_key) }}"
-  data-cpnorm="{{ r.get('carpark_no_norm') }}"
-  data-src="{{ r.get('data_source','') }}"
-  data-night="{{ r.get('night_parking','') }}"
+data-lon="{{ r.get(lon_t_key) }}"
+data-lat="{{ r.get(lat_t_key) }}"
+data-cpnorm="{{ r.get('carpark_no_norm') }}"
+data-src="{{ r.get('data_source','') }}"
+data-night="{{ r.get('night_parking','') }}"
 >
 <td></td>
-
 {% for c in column_keys %}
 {% if c not in ['carpark_no_norm','carpark_no'] %}
 <td>{{ r.get(c,'') }}</td>
@@ -98,7 +123,6 @@ link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl
 </div>
 
 <script>
-
 $(function(){
 
 const table = $('#tbl').DataTable({
@@ -131,19 +155,38 @@ const map = new maplibregl.Map({
 });
 
 let markers=[];
+let availMap={};
 
+/* availability */
+async function loadAvailability(){
+  const res = await fetch('/availability.json');
+  const json = await res.json();
+  availMap = json.data || {};
+}
+
+function buildAvail(cp){
+  const lots=availMap[cp];
+  if(!lots) return "";
+  let p=[];
+  if(lots.C?.available!=null) p.push(`C:${lots.C.available}`);
+  if(lots.H?.available!=null) p.push(`H:${lots.H.available}`);
+  if(lots.Y?.available!=null) p.push(`Y:${lots.Y.available}`);
+  return p.join(" ");
+}
+
+/* ✅ CORE SYNC FIX */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
   markers=[];
 
-  const rows = table.rows({ page:'current' }).nodes();
+  const rows = table.rows({page:'current'}).nodes().toArray();
   const start = table.page.info().start;
 
-  rows.each(function(tr, idx){
+  rows.forEach((tr, idx)=>{
 
     const rowNum = start + idx + 1;
-    $('td:eq(0)', tr).html(rowNum);
+    tr.cells[0].innerText=rowNum;
 
     const lon=parseFloat(tr.dataset.lon);
     const lat=parseFloat(tr.dataset.lat);
@@ -152,12 +195,14 @@ function rebuildMarkers(){
     const el=document.createElement('div');
     el.className='marker';
 
-    const night=(tr.dataset.night||'').toUpperCase();
-    const src=(tr.dataset.src||'').toUpperCase();
+    if((tr.dataset.night||'').toUpperCase()==='Y'){
+      el.classList.add('night');
+    }
+    if((tr.dataset.src||'').toUpperCase()==='JTC'){
+      el.classList.add('jtc');
+    }
 
-    if(night==='Y'||night==='YES') el.classList.add('night');
-    if(src==='JTC') el.classList.add('jtc');
-
+    el.setAttribute('data-avail', buildAvail(tr.dataset.cpnorm));
     el.textContent=rowNum;
 
     markers.push(
@@ -168,14 +213,20 @@ function rebuildMarkers(){
   });
 }
 
-/* ✅ CRITICAL FIX */
-table.on('draw.dt', function(){
+/* ✅ THIS IS THE REAL FIX */
+table.on('draw.dt', ()=>{
   requestAnimationFrame(rebuildMarkers);
 });
 
 /* init */
-map.on('load',()=>{
+map.on('load', async()=>{
+  await loadAvailability();
   rebuildMarkers();
+
+  setInterval(async()=>{
+    await loadAvailability();
+    rebuildMarkers();
+  },60000);
 });
 
 });
