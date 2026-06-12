@@ -5,19 +5,17 @@
   <meta charset="utf-8">
   <title>{{ app_title }}</title>
 
-  <!-- ✅ Correct asset tags -->
-  {{ url_for('static', filename='style.css') }}
+  <!-- Correct asset tags -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/script>
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <style>
-    /* =========================================================
-       MAP LOCK
-       ========================================================= */
+    /* Map hard-lock */
     #map-wrapper {
       display: block;
       width: 100%;
@@ -37,15 +35,10 @@
       border-radius: 12px;
       overflow: hidden;
       box-sizing: border-box;
+      margin: 12px 0;
     }
 
-    /* =========================================================
-       MARKERS
-       Blue = night parking
-       Orange = otherwise
-       Off-white ring = HDB
-       Pink ring = JTC
-       ========================================================= */
+    /* Marker styles */
     .marker {
       width: 24px;
       height: 24px;
@@ -55,8 +48,8 @@
       font-size: 12px;
       font-weight: 800;
       color: #fff;
-      background: #f97316;          /* orange default = no night */
-      border: 3px solid #e5e7eb;    /* HDB ring */
+      background: #f97316;       /* orange = no night parking */
+      border: 3px solid #e5e7eb; /* off-white ring = HDB */
       position: relative;
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       user-select: none;
@@ -64,19 +57,15 @@
     }
 
     .marker.night {
-      background: #3b82f6;          /* blue = night parking */
+      background: #3b82f6;       /* blue = night parking */
     }
 
     .marker.jtc {
-      border-color: #ec4899;        /* pink ring = JTC */
+      border-color: #ec4899;     /* pink ring = JTC */
+      color: #f472b6;
     }
 
-    /* =========================================================
-       AVAILABILITY LABEL
-       Show only available counts with lot type indicators
-       Example: C:120 H:5 Y:20
-       Hide entirely if there is no availability info
-       ========================================================= */
+    /* Availability label: C/H/Y available counts only */
     .marker[data-avail]:not([data-avail=""])::after {
       content: attr(data-avail);
       position: absolute;
@@ -98,9 +87,7 @@
       display: none;
     }
 
-    /* =========================================================
-       LEGEND
-       ========================================================= */
+    /* Legend */
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -137,15 +124,13 @@
     }
   </style>
 </head>
-
 <body>
+
 <div class="container">
 
   <h2>{{ app_title }}</h2>
 
-  <!-- =========================================================
-       SERVER FILTER
-       ========================================================= -->
+  <!-- Server-side filter -->
   <form method="get" class="filter">
     <input
       type="text"
@@ -161,16 +146,13 @@
     <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
   </form>
 
-  <!-- =========================================================
-       CLIENT FILTER
-       ========================================================= -->
+  <!-- Client-side filter -->
   <input
     id="searchBox"
-    placeholder="Filter displayed results instantly (table + map)">
-  
-  <!-- =========================================================
-       LEGEND
-       ========================================================= -->
+    placeholder="Filter displayed results instantly (table + map)"
+  >
+
+  <!-- Marker legend -->
   <div class="legend">
     <div class="legend-item">
       <div class="legend-marker legend-blue"></div>
@@ -184,28 +166,19 @@
 
     <div class="legend-item">
       <div class="legend-marker"></div>
-      HDB
+      HDB Carpark
     </div>
 
     <div class="legend-item">
       <div class="legend-marker legend-jtc"></div>
-      JTC
+      JTC Carpark
     </div>
   </div>
 
-  <!-- =========================================================
-       MAP
-       ========================================================= -->
   <div id="map-wrapper">
     <div id="map"></div>
   </div>
 
-  <!-- =========================================================
-       TABLE
-       Hide:
-       - carpark_no_norm (internal matching key)
-       - carpark_no (duplicate canonical column)
-       ========================================================= -->
   <table id="tbl" class="display">
     <thead>
       <tr>
@@ -241,23 +214,20 @@
 </div>
 
 <script>
-$(function(){
+$(function() {
 
-  /* =========================================================
-     DATATABLE
-     ========================================================= */
+  // DataTable
   const table = $('#tbl').DataTable({
     pageLength: 10,
     lengthMenu: [10, 25, 50, 100]
   });
 
-  $('#searchBox').on('input', function(){
+  // Client-side search
+  $('#searchBox').on('input', function() {
     table.search(this.value).draw();
   });
 
-  /* =========================================================
-     MAP
-     ========================================================= */
+  // Map
   if (typeof maplibregl === 'undefined') {
     console.error('MapLibre failed to load.');
     return;
@@ -265,14 +235,14 @@ $(function(){
 
   const map = new maplibregl.Map({
     container: 'map',
-    center: {{ map_center|tojson }},
+    center: {{ map_center | tojson }},
     zoom: 11,
     trackResize: false,
     style: {
       version: 8,
       sources: {
         onemap: {
-          type: "raster",
+          type: 'raster',
           tiles: [
             "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
           ],
@@ -288,46 +258,37 @@ $(function(){
   let markers = [];
   let availMap = {};
 
-  /* =========================================================
-     AVAILABILITY
-     ========================================================= */
-  async function loadAvailability(){
-    try{
+  async function loadAvailability() {
+    try {
       const res = await fetch('/availability.json');
       const json = await res.json();
       availMap = json.data || {};
-    }catch(e){
+    } catch (e) {
       console.error('Availability load failed', e);
     }
   }
 
-  function buildAvail(cpNorm){
+  // Show only available lots with indicators, omit missing lot types
+  function buildAvail(cpNorm) {
     const lots = availMap[cpNorm];
-    if(!lots) return "";
+    if (!lots) return "";
 
     const parts = [];
-
-    if(lots.C && lots.C.available != null) parts.push(`C:${lots.C.available}`);
-    if(lots.H && lots.H.available != null) parts.push(`H:${lots.H.available}`);
-    if(lots.Y && lots.Y.available != null) parts.push(`Y:${lots.Y.available}`);
+    if (lots.C && lots.C.available != null) parts.push(`C:${lots.C.available}`);
+    if (lots.H && lots.H.available != null) parts.push(`H:${lots.H.available}`);
+    if (lots.Y && lots.Y.available != null) parts.push(`Y:${lots.Y.available}`);
 
     return parts.join(" ");
   }
 
-  /* =========================================================
-     MARKERS
-     IMPORTANT:
-     - Map follows the current DataTable page content
-     - Changing entries per page updates markers correctly
-     - Row numbers are recomputed correctly every draw
-     ========================================================= */
-  function rebuildMarkers(){
+  function rebuildMarkers() {
     markers.forEach(m => m.remove());
     markers = [];
 
+    // Use current page rows so entries-per-page changes update the map correctly
     const rows = table.rows({ page: 'current' }).nodes().toArray();
     const pageInfo = table.page.info();
-    const pageStart = pageInfo.start;  // 0-based index for current page
+    const pageStart = pageInfo.start;
 
     rows.forEach((tr, idx) => {
       const rowNum = pageStart + idx + 1;
@@ -335,7 +296,7 @@ $(function(){
       const lon = parseFloat(tr.dataset.lon);
       const lat = parseFloat(tr.dataset.lat);
 
-      // Always keep row numbers in sync
+      // Always keep row numbers correct
       tr.cells[0].innerText = rowNum;
 
       if (isNaN(lon) || isNaN(lat)) {
@@ -368,11 +329,7 @@ $(function(){
     });
   }
 
-  /* =========================================================
-     EVENTS
-     - draw.dt is the authoritative redraw event for DataTables
-     - covers search, page, order, and entries-per-page changes
-     ========================================================= */
+  // DataTables redraw covers page / search / entries-per-page / order
   table.on('draw.dt', rebuildMarkers);
 
   map.on('load', async () => {
