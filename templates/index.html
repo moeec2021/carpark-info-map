@@ -2,237 +2,312 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>{{ app_title }}</title>
+  <meta charset="utf-8">
+  <title>{{ app_title }}</title>
 
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-<link rel="stylesheet"
-      href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <!-- ✅ Correct asset tags -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
-<link rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <style>
+    /* =========================================================
+       HARD-LOCKED MAP SIZE
+       Prevent the map from shrinking below the initial size.
+       ========================================================= */
+    #map-wrapper {
+      display: block;
+      width: 100%;
+      min-height: 480px;
+      height: 480px;
+      flex-shrink: 0;
+      flex-grow: 0;
+    }
 
-<style>
+    #map {
+      display: block;
+      width: 100%;
+      height: 480px;
+      min-height: 480px !important;
+      max-height: 480px !important;
+      flex-shrink: 0 !important;
+      flex-grow: 0 !important;
+      box-sizing: border-box;
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 12px 0;
+      border: 1px solid var(--border);
+    }
 
-/* ✅ HARD LOCK MAP SIZE */
-#map-wrapper {
-  width: 100%;
-  min-height: 480px;     /* ✅ cannot shrink */
-}
+    /* =========================================================
+       MARKERS
+       ========================================================= */
+    .marker {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 12px;
+      color: #fff;
+      background: #fb923c; /* orange = no night */
+      border: 2px solid #fff;
+      position: relative;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      user-select: none;
+      cursor: pointer;
+    }
 
-#map {
-  width: 100%;
-  height: 480px;
-  min-height: 480px;     /* ✅ enforce minimum */
-  max-height: 480px;     /* ✅ prevent shrink AND growth */
-  flex-shrink: 0;        /* ✅ critical */
-  border-radius: 12px;
-  margin: 12px 0;
-}
+    .marker.night {
+      background: #3b82f6; /* blue = night */
+    }
 
-/* marker */
-.marker{
-  width:24px;height:24px;border-radius:999px;
-  display:grid;place-items:center;
-  font-weight:800;font-size:12px;
-  color:white;background:#fb923c;
-  border:2px solid white;
-  position:relative;
-}
+    .marker.jtc {
+      border-color: #ec4899;
+      color: #f472b6;
+    }
 
-.marker.night{ background:#3b82f6; }
+    /* =========================================================
+       AVAILABILITY LABEL
+       Show C/H/Y available counts only when present.
+       ========================================================= */
+    .marker[data-avail]:not([data-avail=""])::after {
+      content: attr(data-avail);
+      position: absolute;
+      top: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #16a34a; /* green */
+      color: #fff;
+      white-space: nowrap;
+      line-height: 1.2;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
 
-/* ✅ green availability */
-.marker[data-avail]:not([data-avail=""])::after{
-  content:attr(data-avail);
-  position:absolute;
-  top:28px;
-  left:50%;
-  transform:translateX(-50%);
-  font-size:10px;
-  padding:2px 6px;
-  border-radius:6px;
-  background:#16a34a;
-  color:white;
-  font-weight:700;
-  white-space:nowrap;
-}
+    .marker[data-avail=""]::after {
+      display: none;
+    }
 
-.marker[data-avail=""]::after{ display:none; }
-
-.filter a{ margin-left:12px; }
-
-</style>
+    .filter a {
+      margin-left: 12px;
+    }
+  </style>
 </head>
-
 <body>
 
 <div class="container">
 
-<h2>{{ app_title }}</h2>
+  <h2>{{ app_title }}</h2>
 
-<form method="get" class="filter">
-<input type="text" name="q" value="{{ q }}">
-<button type="submit">Apply Server Filter</button>
+  <!-- =========================================================
+       SERVER-SIDE FILTER
+       ========================================================= -->
+  <form method="get" class="filter">
+    <input type="text" name="q" value="{{ q }}" placeholder="Server filter">
 
-<a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
-<a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
-</form>
+    <button type="submit">Apply Server Filter</button>
 
-<input id="searchBox" placeholder="Search">
+    <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
+    <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
+  </form>
 
-<!-- ✅ WRAPPED MAP -->
-<div id="map-wrapper">
-  <div id="map"></div>
-</div>
+  <!-- =========================================================
+       CLIENT-SIDE SEARCH
+       ========================================================= -->
+  <input id="searchBox" placeholder="Search...">
 
-<table id="tbl" class="display">
-<thead>
-<tr>
-<th>#</th>
+  <!-- =========================================================
+       MAP
+       ========================================================= -->
+  <div id="map-wrapper">
+    <div id="map"></div>
+  </div>
 
-{% for c in column_keys %}
-{% if c not in ['carpark_no_norm','carpark_no'] %}
-<th>{{ c }}</th>
-{% endif %}
-{% endfor %}
+  <!-- =========================================================
+       DATA TABLE
+       - hides carpark_no_norm
+       - hides duplicate canonical carpark_no
+       ========================================================= -->
+  <table id="tbl" class="display">
+    <thead>
+      <tr>
+        <th>#</th>
+        {% for c in column_keys %}
+          {% if c not in ['carpark_no_norm', 'carpark_no'] %}
+            <th>{{ c }}</th>
+          {% endif %}
+        {% endfor %}
+      </tr>
+    </thead>
 
-</tr>
-</thead>
+    <tbody>
+      {% for r in rows %}
+      <tr
+        data-lon="{{ r.get(lon_t_key) }}"
+        data-lat="{{ r.get(lat_t_key) }}"
+        data-cpnorm="{{ r.get('carpark_no_norm') }}"
+      >
+        <td></td>
 
-<tbody>
-{% for r in rows %}
-<tr data-lon="{{ r.get(lon_t_key) }}"
-    data-lat="{{ r.get(lat_t_key) }}"
-    data-cpnorm="{{ r.get('carpark_no_norm') }}">
-<td></td>
-
-{% for c in column_keys %}
-{% if c not in ['carpark_no_norm','carpark_no'] %}
-<td>{{ r.get(c) }}</td>
-{% endif %}
-{% endfor %}
-</tr>
-{% endfor %}
-</tbody>
-</table>
+        {% for c in column_keys %}
+          {% if c not in ['carpark_no_norm', 'carpark_no'] %}
+            <td>{{ r.get(c) }}</td>
+          {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
 </div>
 
 <script>
+$(function() {
 
-$(function(){
+  /* =========================================================
+     DATATABLE
+     ========================================================= */
+  const table = $('#tbl').DataTable({
+    pageLength: 10,
+    lengthMenu: [10, 25, 50, 100]
+  });
 
-const table=$('#tbl').DataTable({
-  pageLength:10,
-  lengthMenu:[10,25,50,100]
-});
+  $('#searchBox').on('input', function() {
+    table.search(this.value).draw();
+  });
 
-$('#searchBox').on('input',function(){
-  table.search(this.value).draw();
-});
+  /* =========================================================
+     MAP
+     - trackResize false, and no resize handlers
+     - map height is locked by CSS
+     ========================================================= */
+  const map = new maplibregl.Map({
+    container: 'map',
+    center: {{ map_center | tojson }},
+    zoom: 11,
+    trackResize: false,
+    style: {
+      version: 8,
+      sources: {
+        onemap: {
+          type: 'raster',
+          tiles: [
+            "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
+          ],
+          tileSize: 256
+        }
+      },
+      layers: [
+        { id: 'base', type: 'raster', source: 'onemap' }
+      ]
+    }
+  });
 
-/* MAP */
-const map=new maplibregl.Map({
-  container:'map',
-  center:{{ map_center|tojson }},
-  zoom:11,
-  trackResize:false,   /* ✅ still keep */
-  style:{
-    version:8,
-    sources:{
-      onemap:{
-        type:'raster',
-        tiles:[
-          "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
-        ],
-        tileSize:256
-      }
-    },
-    layers:[{id:'base',type:'raster',source:'onemap'}]
+  let markers = [];
+  let availMap = {};
+
+  /* =========================================================
+     AVAILABILITY
+     ========================================================= */
+  async function loadAvailability() {
+    try {
+      const res = await fetch('/availability.json');
+      const json = await res.json();
+      availMap = json.data || {};
+    } catch (e) {
+      console.error("Availability load failed");
+    }
   }
-});
 
-let markers=[];
-let availMap={};
+  /* =========================================================
+     ONLY SHOW AVAILABLE COUNTS WITH LOT-TYPE INDICATORS
+     - C:120 H:5 Y:20
+     - hide any lot type with no available info
+     ========================================================= */
+  function buildAvail(cpNorm) {
+    const lots = availMap[cpNorm];
+    if (!lots) return "";
 
-async function loadAvailability(){
-  try{
-    const r=await fetch('/availability.json');
-    const j=await r.json();
-    availMap=j.data||{};
-  }catch{}
-}
+    const parts = [];
 
-/* C/H/Y */
-function buildAvail(cp){
-  const lots=availMap[cp];
-  if(!lots) return "";
-
-  let parts=[];
-
-  if(lots.C?.available!=null) parts.push(`C:${lots.C.available}`);
-  if(lots.H?.available!=null) parts.push(`H:${lots.H.available}`);
-  if(lots.Y?.available!=null) parts.push(`Y:${lots.Y.available}`);
-
-  return parts.join(" ");
-}
-
-function rebuildMarkers(){
-
-  markers.forEach(m=>m.remove());
-  markers=[];
-
-  const rows=table.rows({page:'current'}).nodes().toArray();
-
-  let i=1;
-
-  rows.forEach(tr=>{
-    const lon=parseFloat(tr.dataset.lon);
-    const lat=parseFloat(tr.dataset.lat);
-
-    tr.cells[0].innerText=i;
-
-    if(isNaN(lon)||isNaN(lat)){
-      i++; return;
+    if (lots.C && lots.C.available != null) {
+      parts.push(`C:${lots.C.available}`);
+    }
+    if (lots.H && lots.H.available != null) {
+      parts.push(`H:${lots.H.available}`);
+    }
+    if (lots.Y && lots.Y.available != null) {
+      parts.push(`Y:${lots.Y.available}`);
     }
 
-    const el=document.createElement('div');
-    el.className='marker';
+    return parts.join(" ");
+  }
 
-    const cp=tr.dataset.cpnorm;
-    el.setAttribute('data-avail',buildAvail(cp));
+  /* =========================================================
+     MARKERS
+     ========================================================= */
+  function rebuildMarkers() {
+    markers.forEach(m => m.remove());
+    markers = [];
 
-    el.textContent=i;
+    const rows = table.rows({ page: 'current' }).nodes().toArray();
 
-    markers.push(
-      new maplibregl.Marker({element:el})
-        .setLngLat([lon,lat])
-        .addTo(map)
-    );
+    let i = 1;
 
-    i++;
-  });
-}
+    rows.forEach(tr => {
+      const lon = parseFloat(tr.dataset.lon);
+      const lat = parseFloat(tr.dataset.lat);
 
-table.on('draw.dt',rebuildMarkers);
+      tr.cells[0].innerText = i;
 
-map.on('load',async()=>{
-  await loadAvailability();
-  rebuildMarkers();
+      if (isNaN(lon) || isNaN(lat)) {
+        i++;
+        return;
+      }
 
-  setInterval(async()=>{
+      const el = document.createElement('div');
+      el.className = 'marker';
+
+      const cpNorm = tr.dataset.cpnorm;
+      el.setAttribute('data-avail', buildAvail(cpNorm));
+
+      el.textContent = i;
+
+      markers.push(
+        new maplibregl.Marker({ element: el })
+          .setLngLat([lon, lat])
+          .addTo(map)
+      );
+
+      i++;
+    });
+  }
+
+  /* =========================================================
+     EVENTS
+     ========================================================= */
+  table.on('draw.dt', rebuildMarkers);
+
+  map.on('load', async () => {
     await loadAvailability();
     rebuildMarkers();
-  },60000);
-});
+
+    setInterval(async () => {
+      await loadAvailability();
+      rebuildMarkers();
+    }, 60000);
+  });
 
 });
-
 </script>
 
 </body>
