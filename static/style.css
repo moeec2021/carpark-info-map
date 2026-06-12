@@ -1,7 +1,7 @@
 
-/* ==============================
+/* =========================================================
    GLOBAL THEME
-============================== */
+========================================================= */
 
 :root {
   --bg: #0b0f14;
@@ -10,53 +10,136 @@
   --text: #e5e7eb;
   --muted: #9ca3af;
   --accent: #3b82f6;
+  --success: #16a34a;
 }
 
-:root { color-scheme: light dark; }
-
-body {
+html, body {
   margin: 0;
+  padding: 0;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
                Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* ==============================
+/* =========================================================
+   LAYOUT
+========================================================= */
+
+.container {
+  padding: 12px 16px;
+  max-width: 1200px;
+  margin: auto;
+  display: block;
+}
+
+/* =========================================================
    TYPOGRAPHY
-============================== */
+========================================================= */
 
 h1, h2, h3 {
   margin: 0 0 10px 0;
   font-weight: 600;
 }
 
-h1 {
-  font-size: 24px;
+h2 {
+  font-size: 20px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 
-/* ==============================
-   LAYOUT
-============================== */
+/* =========================================================
+   FILTER / FORM
+========================================================= */
 
-.container {
-  padding: 12px 16px;
-  max-width: 1200px;
-  margin: auto;
+.filter {
+  margin: 10px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0f172a;
+  color: white;
+  min-width: 200px;
+}
+
+.filter button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.filter button:hover {
+  background: #2563eb;
+}
+
+.filter a {
+  margin-left: 10px;
+  color: #60a5fa;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.filter a:hover {
+  text-decoration: underline;
+}
+
+/* =========================================================
+   SEARCH BOX
+========================================================= */
+
+#searchBox {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0f172a;
+  color: white;
+  min-width: 240px;
+}
+
+/* =========================================================
+   MAP (HARD-LOCKED SIZE)
+========================================================= */
+
+#map-wrapper {
+  display: block;
+  width: 100%;
+  height: 480px;
+  min-height: 480px;
+  flex-shrink: 0;
+  flex-grow: 0;
 }
 
 #map {
   width: 100%;
   height: 480px;
+  min-height: 480px !important;
+  max-height: 480px !important;
+
   border-radius: 12px;
   border: 1px solid var(--border);
-  margin-bottom: 16px;
   overflow: hidden;
+
+  /* Prevent shrink */
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+  box-sizing: border-box;
 }
 
-/* ==============================
-   TABLE (DATATABLES)
-============================== */
+/* =========================================================
+   DATATABLES
+========================================================= */
 
 table.dataTable {
   background: var(--card-bg);
@@ -64,26 +147,7 @@ table.dataTable {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-}
-
-.dataTables_wrapper {
-  margin-top: 10px;
-}
-
-.dataTables_wrapper .dataTables_filter input {
-  background: #0f172a;
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-
-.dataTables_wrapper .dataTables_length select {
-  background: #0f172a;
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 6px;
-  border-radius: 6px;
+  margin-top: 12px;
 }
 
 table.dataTable thead {
@@ -93,34 +157,57 @@ table.dataTable thead {
 table.dataTable thead th {
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+  padding: 8px;
 }
 
 table.dataTable tbody td {
   border-bottom: 1px solid var(--border);
   font-size: 12px;
+  padding: 6px 8px;
 }
 
 table.dataTable tbody tr:hover {
   background: #1f2937;
 }
 
-/* ==============================
-   STATUS INDICATORS
-============================== */
+.dataTables_wrapper {
+  margin-top: 10px;
+}
 
-.idx {
+/* DataTables input */
+.dataTables_wrapper .dataTables_filter input {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+/* DataTables dropdown */
+.dataTables_wrapper .dataTables_length select {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+/* =========================================================
+   TABLE INDEX + GEO
+========================================================= */
+
+.col-rownum {
   font-weight: 700;
   text-align: center;
 }
 
 .col-geo {
   text-align: center;
-  font-size: 14px;
 }
 
-/* ==============================
-   LEGEND / META
-============================== */
+/* =========================================================
+   META / INFO
+========================================================= */
 
 .banner {
   font-size: 13px;
@@ -137,6 +224,55 @@ table.dataTable tbody tr:hover {
   flex-wrap: wrap;
 }
 
-.legend {
-  font-size: 12px;
-  color: var(--muted);
+/* =========================================================
+   LINKS
+========================================================= */
+
+.link {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* =========================================================
+   RESPONSIVENESS
+========================================================= */
+
+@media (max-width: 768px) {
+  #map-wrapper,
+  #map {
+    height: 480px;
+    min-height: 480px;
+    max-height: 480px;
+  }
+
+  table.dataTable {
+    font-size: 12px;
+  }
+}
+
+/* =========================================================
+   LIGHT MODE SUPPORT
+========================================================= */
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f9fafb;
+    --card-bg: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  table.dataTable tbody tr:hover {
+    background: #f3f4f6;
+  }
+}
