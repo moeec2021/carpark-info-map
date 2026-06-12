@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
-<!-- ✅ FIXED CSS -->
+<!-- ✅ Correct CSS -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
 <!-- ✅ MapLibre -->
@@ -22,6 +22,7 @@
 <style>
 #map { height:480px; margin:12px 0; border-radius:12px; }
 
+/* Marker base */
 .marker{
   width:24px;height:24px;border-radius:999px;
   display:grid;place-items:center;
@@ -33,7 +34,7 @@
 
 .marker.night{ background:#3b82f6; }
 
-/* ✅ Availability label */
+/* ✅ GREEN AVAILABILITY LABEL */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
   position:absolute;
@@ -43,15 +44,17 @@
   font-size:10px;
   padding:2px 6px;
   border-radius:6px;
-  background:black;
+  background:#16a34a;   /* ✅ GREEN */
   color:white;
   white-space:nowrap;
+  font-weight:700;
 }
 
 .marker[data-avail=""]::after{ display:none; }
 
 .filter a { margin-left:12px; }
 </style>
+
 </head>
 
 <body>
@@ -64,13 +67,8 @@
   <input type="text" name="q" value="{{ q }}" placeholder="Server filter">
   <button type="submit">Apply Server Filter</button>
 
-  <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
-    Refresh cache
-  </a>
-
-  <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">
-    Download CSV
-  </a>
+  <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
+  <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
 </form>
 
 <input id="searchBox" placeholder="Search table...">
@@ -81,11 +79,13 @@
 <thead>
 <tr>
 <th>#</th>
+
 {% for c in column_keys %}
 {% if c not in ['carpark_no_norm','carpark_no'] %}
 <th>{{ c }}</th>
 {% endif %}
 {% endfor %}
+
 </tr>
 </thead>
 
@@ -113,7 +113,6 @@
 
 $(function(){
 
-/* ===== DataTable ===== */
 const table = $('#tbl').DataTable({
   pageLength:10,
   lengthMenu:[10,25,50,100]
@@ -123,7 +122,7 @@ $('#searchBox').on('input', function(){
   table.search(this.value).draw();
 });
 
-/* ===== Map ===== */
+/* Map */
 const map = new maplibregl.Map({
   container:'map',
   center: {{ map_center|tojson }},
@@ -140,11 +139,12 @@ const map = new maplibregl.Map({
         tileSize:256
       }
     },
-    layers:[{id:'base',type:'raster',source:'onemap'}]
+    layers:[
+      {id:'base',type:'raster',source:'onemap'}
+    ]
   }
 });
 
-/* ===== Availability ===== */
 let markers=[];
 let availMap={};
 
@@ -153,17 +153,15 @@ async function loadAvailability(){
     const res = await fetch('/availability.json');
     const json = await res.json();
     availMap = json.data || {};
-  }catch(e){
-    console.error("availability load failed");
-  }
+  }catch{}
 }
 
-/* ✅ NEW LOGIC: SHOW ONLY AVAILABLE + INDICATOR */
+/* ✅ SHOW C/H/Y AVAILABLE ONLY */
 function buildAvail(cp){
   const lots = availMap[cp];
   if(!lots) return "";
 
-  let parts = [];
+  let parts=[];
 
   if(lots.C && lots.C.available != null)
     parts.push(`C:${lots.C.available}`);
@@ -177,7 +175,6 @@ function buildAvail(cp){
   return parts.join(" ");
 }
 
-/* ===== Markers ===== */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
@@ -189,24 +186,22 @@ function rebuildMarkers(){
 
   rows.forEach(tr=>{
 
-    const lon = parseFloat(tr.dataset.lon);
-    const lat = parseFloat(tr.dataset.lat);
+    const lon=parseFloat(tr.dataset.lon);
+    const lat=parseFloat(tr.dataset.lat);
 
-    tr.cells[0].innerText = i;
+    tr.cells[0].innerText=i;
 
     if(isNaN(lon)||isNaN(lat)){
-      i++;
-      return;
+      i++; return;
     }
 
     const el=document.createElement('div');
     el.className='marker';
 
-    const cp = tr.dataset.cpnorm;
-    const label = buildAvail(cp);
+    const cp=tr.dataset.cpnorm;
+    el.setAttribute('data-avail', buildAvail(cp));
 
-    el.setAttribute('data-avail', label);
-    el.textContent = i;
+    el.textContent=i;
 
     markers.push(
       new maplibregl.Marker({element:el})
@@ -218,7 +213,6 @@ function rebuildMarkers(){
   });
 }
 
-/* ===== Events ===== */
 table.on('draw.dt', rebuildMarkers);
 
 map.on('load', async ()=>{
