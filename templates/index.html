@@ -5,25 +5,23 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
-<!-- ✅ CSS -->
+<!-- ✅ FIXED CSS -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+<!-- ✅ MapLibre -->
 <link rel="stylesheet"
       href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <!-- ✅ DataTables -->
 <link rel="stylesheet"
       href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
-
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-
-<!-- ✅ MapLibre JS -->
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <style>
 #map { height:480px; margin:12px 0; border-radius:12px; }
 
-/* Marker */
 .marker{
   width:24px;height:24px;border-radius:999px;
   display:grid;place-items:center;
@@ -35,7 +33,7 @@
 
 .marker.night{ background:#3b82f6; }
 
-/* ✅ ONLY AVAILABLE LOTS SHOWN */
+/* ✅ Availability label */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
   position:absolute;
@@ -47,25 +45,23 @@
   border-radius:6px;
   background:black;
   color:white;
+  white-space:nowrap;
 }
 
 .marker[data-avail=""]::after{ display:none; }
 
-/* spacing */
 .filter a { margin-left:12px; }
 </style>
-
 </head>
+
 <body>
 
 <div class="container">
 
 <h2>{{ app_title }}</h2>
 
-<!-- ✅ CLEAN LINKS -->
 <form method="get" class="filter">
   <input type="text" name="q" value="{{ q }}" placeholder="Server filter">
-
   <button type="submit">Apply Server Filter</button>
 
   <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
@@ -85,13 +81,11 @@
 <thead>
 <tr>
 <th>#</th>
-
 {% for c in column_keys %}
 {% if c not in ['carpark_no_norm','carpark_no'] %}
 <th>{{ c }}</th>
 {% endif %}
 {% endfor %}
-
 </tr>
 </thead>
 
@@ -119,23 +113,17 @@
 
 $(function(){
 
-/* =========================
-   TABLE
-========================= */
+/* ===== DataTable ===== */
 const table = $('#tbl').DataTable({
   pageLength:10,
   lengthMenu:[10,25,50,100]
 });
 
-/* client search */
 $('#searchBox').on('input', function(){
   table.search(this.value).draw();
 });
 
-
-/* =========================
-   MAP
-========================= */
+/* ===== Map ===== */
 const map = new maplibregl.Map({
   container:'map',
   center: {{ map_center|tojson }},
@@ -152,16 +140,11 @@ const map = new maplibregl.Map({
         tileSize:256
       }
     },
-    layers:[
-      {id:'base',type:'raster',source:'onemap'}
-    ]
+    layers:[{id:'base',type:'raster',source:'onemap'}]
   }
 });
 
-
-/* =========================
-   AVAILABILITY
-========================= */
+/* ===== Availability ===== */
 let markers=[];
 let availMap={};
 
@@ -175,29 +158,26 @@ async function loadAvailability(){
   }
 }
 
-/* ✅ ONLY AVAILABLE VALUES (NO TOTALS) */
+/* ✅ NEW LOGIC: SHOW ONLY AVAILABLE + INDICATOR */
 function buildAvail(cp){
   const lots = availMap[cp];
   if(!lots) return "";
 
-  let parts=[];
+  let parts = [];
 
   if(lots.C && lots.C.available != null)
-    parts.push(lots.C.available);
+    parts.push(`C:${lots.C.available}`);
 
   if(lots.H && lots.H.available != null)
-    parts.push(lots.H.available);
+    parts.push(`H:${lots.H.available}`);
 
   if(lots.Y && lots.Y.available != null)
-    parts.push(lots.Y.available);
+    parts.push(`Y:${lots.Y.available}`);
 
   return parts.join(" ");
 }
 
-
-/* =========================
-   MARKERS
-========================= */
+/* ===== Markers ===== */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
@@ -212,7 +192,7 @@ function rebuildMarkers(){
     const lon = parseFloat(tr.dataset.lon);
     const lat = parseFloat(tr.dataset.lat);
 
-    tr.cells[0].innerText=i;
+    tr.cells[0].innerText = i;
 
     if(isNaN(lon)||isNaN(lat)){
       i++;
@@ -226,7 +206,7 @@ function rebuildMarkers(){
     const label = buildAvail(cp);
 
     el.setAttribute('data-avail', label);
-    el.textContent=i;
+    el.textContent = i;
 
     markers.push(
       new maplibregl.Marker({element:el})
@@ -238,15 +218,13 @@ function rebuildMarkers(){
   });
 }
 
-/* redraw events */
+/* ===== Events ===== */
 table.on('draw.dt', rebuildMarkers);
 
-/* initial load */
 map.on('load', async ()=>{
   await loadAvailability();
   rebuildMarkers();
 
-  /* ✅ refresh + redraw */
   setInterval(async ()=>{
     await loadAvailability();
     rebuildMarkers();
