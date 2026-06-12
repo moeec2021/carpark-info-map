@@ -17,13 +17,21 @@
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <style>
-/* ✅ LOCK MAP SIZE */
-#map {
-  height: 480px;
-  min-height: 480px;   /* ✅ NEW: prevents shrinking */
+
+/* ✅ HARD LOCK MAP SIZE */
+#map-wrapper {
   width: 100%;
-  margin: 12px 0;
+  min-height: 480px;     /* ✅ cannot shrink */
+}
+
+#map {
+  width: 100%;
+  height: 480px;
+  min-height: 480px;     /* ✅ enforce minimum */
+  max-height: 480px;     /* ✅ prevent shrink AND growth */
+  flex-shrink: 0;        /* ✅ critical */
   border-radius: 12px;
+  margin: 12px 0;
 }
 
 /* marker */
@@ -54,11 +62,10 @@
   white-space:nowrap;
 }
 
-.marker[data-avail=""]::after{
-  display:none;
-}
+.marker[data-avail=""]::after{ display:none; }
 
-.filter a { margin-left:12px; }
+.filter a{ margin-left:12px; }
+
 </style>
 </head>
 
@@ -76,9 +83,12 @@
 <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
 </form>
 
-<input id="searchBox" placeholder="Search...">
+<input id="searchBox" placeholder="Search">
 
-<div id="map"></div>
+<!-- ✅ WRAPPED MAP -->
+<div id="map-wrapper">
+  <div id="map"></div>
+</div>
 
 <table id="tbl" class="display">
 <thead>
@@ -106,7 +116,6 @@
 <td>{{ r.get(c) }}</td>
 {% endif %}
 {% endfor %}
-
 </tr>
 {% endfor %}
 </tbody>
@@ -118,23 +127,21 @@
 
 $(function(){
 
-/* table */
 const table=$('#tbl').DataTable({
   pageLength:10,
   lengthMenu:[10,25,50,100]
 });
 
-/* search */
 $('#searchBox').on('input',function(){
   table.search(this.value).draw();
 });
 
-/* map */
+/* MAP */
 const map=new maplibregl.Map({
   container:'map',
   center:{{ map_center|tojson }},
   zoom:11,
-  trackResize:false,   /* ✅ prevents auto resize */
+  trackResize:false,   /* ✅ still keep */
   style:{
     version:8,
     sources:{
@@ -153,7 +160,6 @@ const map=new maplibregl.Map({
 let markers=[];
 let availMap={};
 
-/* availability */
 async function loadAvailability(){
   try{
     const r=await fetch('/availability.json');
@@ -162,26 +168,20 @@ async function loadAvailability(){
   }catch{}
 }
 
-/* show C/H/Y available only */
+/* C/H/Y */
 function buildAvail(cp){
   const lots=availMap[cp];
   if(!lots) return "";
 
   let parts=[];
 
-  if(lots.C && lots.C.available!=null)
-    parts.push(`C:${lots.C.available}`);
-
-  if(lots.H && lots.H.available!=null)
-    parts.push(`H:${lots.H.available}`);
-
-  if(lots.Y && lots.Y.available!=null)
-    parts.push(`Y:${lots.Y.available}`);
+  if(lots.C?.available!=null) parts.push(`C:${lots.C.available}`);
+  if(lots.H?.available!=null) parts.push(`H:${lots.H.available}`);
+  if(lots.Y?.available!=null) parts.push(`Y:${lots.Y.available}`);
 
   return parts.join(" ");
 }
 
-/* markers */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
@@ -192,7 +192,6 @@ function rebuildMarkers(){
   let i=1;
 
   rows.forEach(tr=>{
-
     const lon=parseFloat(tr.dataset.lon);
     const lat=parseFloat(tr.dataset.lat);
 
@@ -220,7 +219,6 @@ function rebuildMarkers(){
   });
 }
 
-/* events */
 table.on('draw.dt',rebuildMarkers);
 
 map.on('load',async()=>{
