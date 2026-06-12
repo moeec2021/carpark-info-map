@@ -1,73 +1,52 @@
 
 <!doctype html>
-="{{ url_for('static', filename='style.css') }}"><html lang="en">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ app_title }}</title>
+
+<!-- ✅ CSS -->
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
 <!-- ✅ MapLibre -->
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
 <!-- ✅ DataTables -->
 <link rel="stylesheet"
       href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
 
 <style>
-
-/* ===== MAP ===== */
 #map-wrapper { height:480px; }
-#map {
-  height:480px;
-  border-radius:12px;
-  border:1px solid #1f2937;
-}
+#map { height:480px; border-radius:12px; border:1px solid #1f2937; }
 
-/* ===== MARKER ===== */
 .marker{
   width:24px;height:24px;
   border-radius:50%;
-  display:grid;
-  place-items:center;
-  font-size:12px;
-  font-weight:800;
-  color:white;
-  background:#f97316; /* orange */
+  display:grid;place-items:center;
+  font-size:12px;font-weight:800;
+  color:white;background:#f97316;
   border:3px solid #e5e7eb;
   position:relative;
 }
 .marker.night{ background:#3b82f6; }
 .marker.jtc{ border-color:#ec4899; }
 
-/* availability */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
   position:absolute;
   top:28px;
   left:50%;
   transform:translateX(-50%);
+  background:#16a34a;
+  color:white;
   font-size:10px;
   padding:2px 6px;
   border-radius:6px;
-  background:#16a34a;
-  color:white;
-  font-weight:700;
 }
-
-/* ===== LEGEND ===== */
-.legend{ display:flex; gap:16px; margin:10px 0; }
-
-.legend-marker{
-  width:16px;height:16px;
-  border-radius:50%;
-  border:3px solid #e5e7eb;
-  display:inline-block;
-}
-.legend-blue{ background:#3b82f6; }
-.legend-orange{ background:#f97316; }
-.legend-jtc{ border-color:#ec4899; }
-
-.filter a { margin-left:12px; }
-
 </style>
 </head>
 
@@ -77,51 +56,20 @@
 
 <h2>{{ app_title }}</h2>
 
-<form method="get" class="filter">
+<input id="searchBox" placeholder="Filter displayed results instantly">
 
-<input name="q" value="{{ q }}"
-       placeholder="Search ALL carparks (server filter)">
+<div id="map-wrapper"><div id="map"></div></div>
 
-<button type="submit">Load & Filter Dataset</button>
-
-<a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
-  Refresh cache
-</a>
-
-<a href="/download.csv{% if q %}?q={{ q }}{% endif %}">
-  Download CSV
-</a>
-
-</form>
-
-<input id="searchBox"
-       placeholder="Filter displayed results instantly">
-
-<!-- legend -->
-<div class="legend">
-  <div><span class="legend-marker legend-blue"></span> Night</div>
-  <div><span class="legend-marker legend-orange"></span> No Night</div>
-  <div><span class="legend-marker"></span> HDB</div>
-  <div><span class="legend-marker legend-jtc"></span> JTC</div>
-</div>
-
-<div id="map-wrapper">
-  <div id="map"></div>
-</div>
-
-<!-- ✅ TABLE FIXED -->
 <table id="tbl" class="display">
 
 <thead>
 <tr>
 <th>#</th>
-
 {% for c in column_keys %}
-  {% if c not in ['carpark_no_norm','carpark_no'] %}
-    <th>{{ c }}</th>
-  {% endif %}
+{% if c not in ['carpark_no_norm','carpark_no'] %}
+<th>{{ c }}</th>
+{% endif %}
 {% endfor %}
-
 </tr>
 </thead>
 
@@ -134,15 +82,13 @@
   data-src="{{ r.get('data_source','') }}"
   data-night="{{ r.get('night_parking','') }}"
 >
-
 <td></td>
 
 {% for c in column_keys %}
-  {% if c not in ['carpark_no_norm','carpark_no'] %}
-    <td>{{ r.get(c, '') }}</td>
-  {% endif %}
+{% if c not in ['carpark_no_norm','carpark_no'] %}
+<td>{{ r.get(c,'') }}</td>
+{% endif %}
 {% endfor %}
-
 </tr>
 {% endfor %}
 </tbody>
@@ -166,7 +112,7 @@ $('#searchBox').on('input', function(){
 });
 
 /* map */
-const map=new maplibregl.Map({
+const map = new maplibregl.Map({
   container:'map',
   center:{{ map_center|tojson }},
   zoom:11,
@@ -176,9 +122,7 @@ const map=new maplibregl.Map({
     sources:{
       onemap:{
         type:"raster",
-        tiles:[
-          "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"
-        ],
+        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
         tileSize:256
       }
     },
@@ -187,33 +131,7 @@ const map=new maplibregl.Map({
 });
 
 let markers=[];
-let availMap={};
 
-/* load availability */
-async function loadAvailability(){
-  try{
-    const res=await fetch('/availability.json');
-    const json=await res.json();
-    availMap=json.data||{};
-  }catch(e){
-    console.error(e);
-  }
-}
-
-/* build label */
-function buildAvail(cp){
-  const lots=availMap[cp];
-  if(!lots) return "";
-
-  let parts=[];
-  if(lots.C?.available!=null) parts.push(`C:${lots.C.available}`);
-  if(lots.H?.available!=null) parts.push(`H:${lots.H.available}`);
-  if(lots.Y?.available!=null) parts.push(`Y:${lots.Y.available}`);
-
-  return parts.join(" ");
-}
-
-/* ✅ CRITICAL: FULL SYNC WITH TABLE */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
@@ -229,7 +147,6 @@ function rebuildMarkers(){
 
     const lon=parseFloat(tr.dataset.lon);
     const lat=parseFloat(tr.dataset.lat);
-
     if(isNaN(lon)||isNaN(lat)) return;
 
     const el=document.createElement('div');
@@ -241,7 +158,6 @@ function rebuildMarkers(){
     if(night==='Y'||night==='YES') el.classList.add('night');
     if(src==='JTC') el.classList.add('jtc');
 
-    el.setAttribute('data-avail', buildAvail(tr.dataset.cpnorm));
     el.textContent=rowNum;
 
     markers.push(
@@ -252,30 +168,18 @@ function rebuildMarkers(){
   });
 }
 
-/* ✅ key fix: correct timing */
+/* ✅ CRITICAL FIX */
 table.on('draw.dt', function(){
   requestAnimationFrame(rebuildMarkers);
 });
 
 /* init */
-map.on('load', async()=>{
-  await loadAvailability();
+map.on('load',()=>{
   rebuildMarkers();
-
-  setInterval(async()=>{
-    await loadAvailability();
-    rebuildMarkers();
-  },60000);
 });
 
 });
-
 </script>
 
 </body>
 </html>
-<head>
-<meta charset="utf-8">
-<title>{{ app_title }}</title>
-
-<!-- ✅ correct css -->
