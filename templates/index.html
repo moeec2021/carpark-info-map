@@ -5,11 +5,15 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
+<!-- ✅ correct css -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+<!-- ✅ MapLibre -->
+<link rel="stylesheet"
+      href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
+<!-- ✅ DataTables -->
 <link rel="stylesheet"
       href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
@@ -18,11 +22,15 @@
 
 <style>
 
-/* MAP */
-#map-wrapper { height:480px; }
-#map { height:480px; border-radius:12px; }
+/* ===== MAP ===== */
+#map-wrapper{ height:480px; }
+#map {
+  height:480px;
+  border-radius:12px;
+  border:1px solid #1f2937;
+}
 
-/* MARKER */
+/* ===== MARKERS ===== */
 .marker{
   width:24px;height:24px;
   border-radius:50%;
@@ -31,29 +39,48 @@
   font-size:12px;
   font-weight:800;
   color:white;
-  background:#f97316;
+
+  background:#f97316; /* orange */
   border:3px solid #e5e7eb;
+
   position:relative;
 }
+
 .marker.night{ background:#3b82f6; }
 .marker.jtc{ border-color:#ec4899; }
 
-/* ✅ AVAILABILITY LABEL */
+/* ===== AVAILABILITY ===== */
 .marker[data-avail]:not([data-avail=""])::after{
   content:attr(data-avail);
   position:absolute;
   top:28px;
   left:50%;
   transform:translateX(-50%);
-  background:#16a34a;
-  color:white;
   font-size:10px;
   padding:2px 6px;
   border-radius:6px;
+  background:#16a34a;
+  color:white;
   font-weight:700;
 }
 
 .marker[data-avail=""]::after{ display:none; }
+
+/* ===== LEGEND ===== */
+.legend{ display:flex; gap:16px; margin:10px 0; }
+
+.legend-marker{
+  width:16px;height:16px;
+  border-radius:50%;
+  border:3px solid #e5e7eb;
+  display:inline-block;
+}
+
+.legend-blue{ background:#3b82f6; }
+.legend-orange{ background:#f97316; }
+.legend-jtc{ border-color:#ec4899; }
+
+.filter a{ margin-left:12px; }
 
 </style>
 </head>
@@ -64,24 +91,46 @@
 
 <h2>{{ app_title }}</h2>
 
-<form method="get">
-<input name="q" value="{{ q }}">
+<form method="get" class="filter">
+<input name="q" value="{{ q }}" placeholder="Search ALL carparks (server filter)">
 <button type="submit">Load & Filter Dataset</button>
+
+<a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
+  Refresh cache
+</a>
+
+<a href="/download.csv{% if q %}?q={{ q }}{% endif %}">
+  Download CSV
+</a>
 </form>
 
-<input id="searchBox" placeholder="Filter displayed results">
+<input id="searchBox"
+       placeholder="Filter displayed results instantly">
 
-<div id="map-wrapper"><div id="map"></div></div>
+<!-- legend -->
+<div class="legend">
+  <div><span class="legend-marker legend-blue"></span> Night</div>
+  <div><span class="legend-marker legend-orange"></span> No Night</div>
+  <div><span class="legend-marker"></span> HDB</div>
+  <div><span class="legend-marker legend-jtc"></span> JTC</div>
+</div>
 
+<div id="map-wrapper">
+  <div id="map"></div>
+</div>
+
+<!-- ✅ FIXED TABLE -->
 <table id="tbl" class="display">
 <thead>
 <tr>
 <th>#</th>
+
 {% for c in column_keys %}
-{% if c not in ['carpark_no_norm','carpark_no'] %}
-<th>{{ c }}</th>
-{% endif %}
+  {% if c not in ['carpark_no_norm','carpark_no'] %}
+    <th>{{ c }}</th>
+  {% endif %}
 {% endfor %}
+
 </tr>
 </thead>
 
@@ -92,11 +141,15 @@
     data-cpnorm="{{ r.get('carpark_no_norm') }}"
     data-src="{{ r.get('data_source','') }}"
     data-night="{{ r.get('night_parking','') }}">
+
 <td></td>
 
 {% for c in column_keys %}
-<td>{{ r.get(c) }}</td>
+  {% if c not in ['carpark_no_norm','carpark_no'] %}
+    <td>{{ r.get(c, '') }}</td>
+  {% endif %}
 {% endfor %}
+
 </tr>
 {% endfor %}
 </tbody>
@@ -105,9 +158,13 @@
 </div>
 
 <script>
+
 $(function(){
 
-const table = $('#tbl').DataTable();
+const table = $('#tbl').DataTable({
+  pageLength:10,
+  lengthMenu:[10,25,50,100]
+});
 
 /* search */
 $('#searchBox').on('input',function(){
@@ -115,7 +172,7 @@ $('#searchBox').on('input',function(){
 });
 
 /* map */
-const map = new maplibregl.Map({
+const map=new maplibregl.Map({
   container:'map',
   center:{{ map_center|tojson }},
   zoom:11,
@@ -136,18 +193,18 @@ const map = new maplibregl.Map({
 let markers=[];
 let availMap={};
 
-/* ✅ LOAD AVAILABILITY */
+/* ✅ availability loader */
 async function loadAvailability(){
   try{
     const res=await fetch('/availability.json');
-    const j=await res.json();
-    availMap=j.data||{};
+    const json=await res.json();
+    availMap=json.data||{};
   }catch(e){
     console.error(e);
   }
 }
 
-/* ✅ BUILD AVAIL LABEL */
+/* ✅ build label */
 function buildAvail(cp){
   const lots=availMap[cp];
   if(!lots) return "";
@@ -160,37 +217,35 @@ function buildAvail(cp){
   return parts.join(" ");
 }
 
-/* ✅ REBUILD MARKERS */
+/* ✅ marker rebuild */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
   markers=[];
 
-  const rows = table.rows({page:'current'}).nodes().toArray();
+  const rows = table.rows({ page:'current' }).nodes().toArray();
   const start = table.page.info().start;
 
   rows.forEach((tr, idx)=>{
 
-    const rowNum=start+idx+1;
-    tr.cells[0].innerText=rowNum;
+    const rowNum = start + idx + 1;
+    tr.cells[0].innerText = rowNum;
 
     const lon=parseFloat(tr.dataset.lon);
     const lat=parseFloat(tr.dataset.lat);
+
     if(isNaN(lon)||isNaN(lat)) return;
 
     const el=document.createElement('div');
     el.className='marker';
 
-    const src=(tr.dataset.src||'').toUpperCase();
     const night=(tr.dataset.night||'').toUpperCase();
+    const src=(tr.dataset.src||'').toUpperCase();
 
     if(night==='Y'||night==='YES') el.classList.add('night');
     if(src==='JTC') el.classList.add('jtc');
 
-    /* ✅ APPLY AVAILABILITY */
-    const label = buildAvail(tr.dataset.cpnorm);
-    el.setAttribute('data-avail', label);
-
+    el.setAttribute('data-avail', buildAvail(tr.dataset.cpnorm));
     el.textContent=rowNum;
 
     markers.push(
@@ -201,14 +256,14 @@ function rebuildMarkers(){
   });
 }
 
-/* ✅ SYNC */
+/* ✅ sync */
 table.on('draw.dt page.dt length.dt search.dt order.dt', ()=>{
   setTimeout(rebuildMarkers,50);
 });
 
-/* ✅ INIT */
+/* init */
 map.on('load', async()=>{
-  await loadAvailability();   /* IMPORTANT */
+  await loadAvailability();
   rebuildMarkers();
 
   setInterval(async()=>{
@@ -218,6 +273,7 @@ map.on('load', async()=>{
 });
 
 });
+
 </script>
 
 </body>
