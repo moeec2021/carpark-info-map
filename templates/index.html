@@ -126,3 +126,101 @@
 {% for r in rows %}
 <tr data-lon="{{ r.get(lon_t_key) }}"
     data-lat="{{ r.get(lat_t_key) }}"
+    data-cpnorm="{{ r.get('carpark_no_norm') }}"
+    data-src="{{ r.get('data_source','') }}"
+    data-night="{{ r.get('night_parking','') }}">
+<td></td>
+
+{% for c in column_keys %}
+{% if c not in ['carpark_no_norm','carpark_no'] %}
+<td>{{ r.get(c) }}</td>
+{% endif %}
+{% endfor %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+</div>
+
+<script>
+$(function(){
+
+const table=$('#tbl').DataTable();
+
+/* search */
+$('#searchBox').on('input',function(){
+  table.search(this.value).draw();
+});
+
+/* map */
+const map=new maplibregl.Map({
+  container:'map',
+  center:{{ map_center|tojson }},
+  zoom:11,
+  trackResize:false,
+  style:{
+    version:8,
+    sources:{
+      onemap:{
+        type:"raster",
+        tiles:["https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png"],
+        tileSize:256
+      }
+    },
+    layers:[{id:'base',type:'raster',source:'onemap'}]
+  }
+});
+
+let markers=[];
+
+/* markers */
+function rebuildMarkers(){
+
+  markers.forEach(m=>m.remove());
+  markers=[];
+
+  const rows=table.rows({page:'current'}).nodes().toArray();
+  const start=table.page.info().start;
+
+  rows.forEach((tr,idx)=>{
+
+    const rowNum=start+idx+1;
+    tr.cells[0].innerText=rowNum;
+
+    const lon=parseFloat(tr.dataset.lon);
+    const lat=parseFloat(tr.dataset.lat);
+
+    if(isNaN(lon)||isNaN(lat)) return;
+
+    const el=document.createElement('div');
+    el.className='marker';
+
+    const src=(tr.dataset.src||'').toUpperCase();
+    const night=(tr.dataset.night||'').toUpperCase();
+
+    if(night==='Y'||night==='YES') el.classList.add('night');
+    if(src==='JTC') el.classList.add('jtc');
+
+    el.textContent=rowNum;
+
+    markers.push(
+      new maplibregl.Marker({element:el})
+        .setLngLat([lon,lat])
+        .addTo(map)
+    );
+  });
+}
+
+/* sync */
+table.on('draw.dt', rebuildMarkers);
+
+map.on('load',()=>{
+  rebuildMarkers();
+});
+
+});
+</script>
+
+</body>
+</html>
