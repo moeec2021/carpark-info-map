@@ -5,12 +5,10 @@
 <meta charset="utf-8">
 <title>{{ app_title }}</title>
 
-<!-- ✅ Correct asset tags -->
+<!-- ✅ Correct assets -->
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-
-<link rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css">
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
@@ -18,27 +16,20 @@
 
 <style>
 
-/* =========================================================
-   MAP LOCK
-========================================================= */
+/* ===== MAP LOCK ===== */
 #map-wrapper {
   height: 480px;
   min-height: 480px;
 }
-
 #map {
   height: 480px;
-  min-height: 480px !important;
-  max-height: 480px !important;
-  width: 100%;
-  border-radius: 12px;
+  min-height: 480px;
+  max-height: 480px;
   border: 1px solid #1f2937;
+  border-radius: 12px;
 }
 
-/* =========================================================
-   MARKERS (NEW STYLE RULES)
-========================================================= */
-
+/* ===== MARKERS ===== */
 .marker {
   width: 24px;
   height: 24px;
@@ -49,29 +40,24 @@
   font-weight: 800;
   color: white;
 
-  /* ✅ DEFAULT = RED (no night parking) */
-  background: #ef4444;
+  /* ✅ CHANGED HERE: ORANGE instead of red */
+  background: #f97316;
 
-  /* ✅ DEFAULT OUTER RING = HDB (off-white) */
-  border: 3px solid #e5e7eb;
-
+  border: 3px solid #e5e7eb; /* HDB */
   position: relative;
 }
 
-/* ✅ Night parking = Blue */
+/* Night parking */
 .marker.night {
   background: #3b82f6;
 }
 
-/* ✅ JTC outer ring = pink */
+/* JTC ring */
 .marker.jtc {
   border-color: #ec4899;
 }
 
-/* =========================================================
-   AVAILABILITY LABEL (GREEN)
-========================================================= */
-
+/* ===== AVAILABILITY ===== */
 .marker[data-avail]:not([data-avail=""])::after {
   content: attr(data-avail);
   position: absolute;
@@ -86,11 +72,35 @@
   font-weight: 700;
   white-space: nowrap;
 }
+.marker[data-avail=""]::after { display: none; }
 
-.marker[data-avail=""]::after {
-  display: none;
+/* ===== LEGEND ===== */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 10px 0;
+  font-size: 13px;
 }
 
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid #e5e7eb;
+}
+
+.legend-orange { background: #f97316; }  /* ✅ updated */
+.legend-blue   { background: #3b82f6; }
+.legend-jtc    { border-color: #ec4899; }
+
+/* spacing */
 .filter a { margin-left: 12px; }
 
 </style>
@@ -102,7 +112,7 @@
 
 <h2>{{ app_title }}</h2>
 
-<form method="get">
+<form method="get" class="filter">
   <input type="text" name="q" value="{{ q }}">
   <button type="submit">Apply Server Filter</button>
 
@@ -111,6 +121,29 @@
 </form>
 
 <input id="searchBox" placeholder="Search...">
+
+<!-- ✅ LEGEND UPDATED -->
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-marker legend-blue"></div>
+    Night Parking
+  </div>
+
+  <div class="legend-item">
+    <div class="legend-marker legend-orange"></div>
+    No Night Parking
+  </div>
+
+  <div class="legend-item">
+    <div class="legend-marker"></div>
+    HDB Carpark
+  </div>
+
+  <div class="legend-item">
+    <div class="legend-marker legend-jtc"></div>
+    JTC Carpark
+  </div>
+</div>
 
 <div id="map-wrapper">
   <div id="map"></div>
@@ -158,17 +191,16 @@
 
 $(function(){
 
-/* table */
 const table = $('#tbl').DataTable({
-  pageLength:10,
-  lengthMenu:[10,25,50,100]
+  pageLength: 10,
+  lengthMenu: [10,25,50,100]
 });
 
 $('#searchBox').on('input', function(){
   table.search(this.value).draw();
 });
 
-/* map */
+/* MAP */
 const map = new maplibregl.Map({
   container: 'map',
   center: {{ map_center|tojson }},
@@ -189,16 +221,15 @@ const map = new maplibregl.Map({
   }
 });
 
-let markers=[];
-let availMap={};
+let markers = [];
+let availMap = {};
 
-/* ===== availability ===== */
 async function loadAvailability(){
-  try{
+  try {
     const r = await fetch('/availability.json');
     const j = await r.json();
     availMap = j.data || {};
-  }catch{}
+  } catch {}
 }
 
 function buildAvail(cp){
@@ -206,15 +237,13 @@ function buildAvail(cp){
   if(!lots) return "";
 
   let parts=[];
-
-  if(lots.C?.available != null) parts.push(`C:${lots.C.available}`);
-  if(lots.H?.available != null) parts.push(`H:${lots.H.available}`);
-  if(lots.Y?.available != null) parts.push(`Y:${lots.Y.available}`);
+  if(lots.C?.available!=null) parts.push(`C:${lots.C.available}`);
+  if(lots.H?.available!=null) parts.push(`H:${lots.H.available}`);
+  if(lots.Y?.available!=null) parts.push(`Y:${lots.Y.available}`);
 
   return parts.join(" ");
 }
 
-/* ===== markers ===== */
 function rebuildMarkers(){
 
   markers.forEach(m=>m.remove());
@@ -224,7 +253,7 @@ function rebuildMarkers(){
 
   let i=1;
 
-  rows.forEach(tr=>{
+  rows.forEach(tr => {
 
     const lon = parseFloat(tr.dataset.lon);
     const lat = parseFloat(tr.dataset.lat);
@@ -232,17 +261,14 @@ function rebuildMarkers(){
     tr.cells[0].innerText = i;
 
     if(isNaN(lon)||isNaN(lat)){
-      i++;
-      return;
+      i++; return;
     }
 
     const el = document.createElement('div');
     el.className = 'marker';
 
-    /* ✅ NEW LOGIC */
-
-    const src = (tr.dataset.src || '').toUpperCase();
-    const night = (tr.dataset.night || '').toUpperCase();
+    const src = (tr.dataset.src||'').toUpperCase();
+    const night = (tr.dataset.night||'').toUpperCase();
 
     if(night === 'Y' || night === 'YES'){
       el.classList.add('night');
@@ -267,7 +293,6 @@ function rebuildMarkers(){
   });
 }
 
-/* events */
 table.on('draw.dt', rebuildMarkers);
 
 map.on('load', async ()=>{
