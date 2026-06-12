@@ -6,12 +6,12 @@
   <title>{{ app_title }}</title>
 
   <!-- ✅ FIX 1: MUST wrap in link -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+   }}">
 
   <!-- ✅ MapLibre -->
   <link rel="stylesheet"
         href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
-  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/script>
 
   <!-- ✅ DataTables -->
   <link rel="stylesheet"
@@ -62,11 +62,11 @@
     <button type="submit">Apply Server Filter</button>
 
     <!-- ✅ THESE WERE YOUR BROKEN LINES -->
-    <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">
+    /?refresh=1{% if q %}&q={{ q }}{% endif %}
       Refresh cache
     </a>
 
-    <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">
+    /download.csv{% if q %}?q={{ q }}{% endif %}
       Download CSV
     </a>
   </form>
@@ -188,4 +188,3 @@ $(function(){
 
 </body>
 </html>
-``
