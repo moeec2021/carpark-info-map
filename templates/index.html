@@ -6,7 +6,7 @@
   <title>{{ app_title }}</title>
 
   <!-- App CSS -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {{ url_for('static', filename='style.css') }}
 
   <!-- MapLibre -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
@@ -20,7 +20,7 @@
   <style>
     /* =========================================================
        MAP LOCK
-       Prevent shrinking below the initial display size
+       Keep map from shrinking below initial display size
        ========================================================= */
     #map-wrapper {
       display: block;
@@ -145,8 +145,21 @@
       margin-left: 6px;
     }
 
+    .filter {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
     .filter a {
       margin-left: 12px;
+    }
+
+    #searchBox {
+      margin-bottom: 10px;
+      min-width: 280px;
     }
   </style>
 </head>
@@ -170,8 +183,8 @@
     <button type="submit">Load &amp; Filter Dataset</button>
     <span class="hint">Filters data before loading</span>
 
-    <a href="/?refresh=1{% if q %}&q={{ q }}{% endif %}">Refresh cache</a>
-    <a href="/download.csv{% if q %}?q={{ q }}{% endif %}">Download CSV</a>
+    /?refresh=1{% if q %}&amp;q={{ q }}{% endif %}Refresh cache</a>
+    /download.csv{% if q %}?q={{ q }}{% endif %}Download CSV</a>
   </form>
 
   <!-- =========================================================
@@ -238,8 +251,8 @@
         data-lon="{{ r.get(lon_t_key) }}"
         data-lat="{{ r.get(lat_t_key) }}"
         data-cpnorm="{{ r.get('carpark_no_norm') }}"
-        data-src="{{ r.get('data_source','') }}"
-        data-night="{{ r.get('night_parking','') }}"
+        data-src="{{ r.get('data_source', '') }}"
+        data-night="{{ r.get('night_parking', '') }}"
       >
         <td></td>
         {% for c in column_keys %}
@@ -255,7 +268,7 @@
 </div>
 
 <script>
-$(function() {
+$(function () {
 
   /* =========================================================
      DATATABLE
@@ -266,7 +279,7 @@ $(function() {
   });
 
   // Client-side search
-  $('#searchBox').on('input', function() {
+  $('#searchBox').on('input', function () {
     table.search(this.value).draw();
   });
 
@@ -307,6 +320,7 @@ $(function() {
 
   let markers = [];
   let availMap = {};
+  let syncTimer = null;
 
   /* =========================================================
      AVAILABILITY
@@ -382,12 +396,18 @@ $(function() {
 
   /* =========================================================
      CRITICAL SYNC
-     Rebuild after DataTables has finished drawing the DOM
-     This is what keeps Show entries changes in sync.
+     Rebuild after DataTables has finished drawing the DOM.
+     Handle both draw and length changes robustly.
      ========================================================= */
-  table.on('draw.dt', function() {
-    requestAnimationFrame(rebuildMarkers);
-  });
+  function syncMapToTable() {
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+    }
+    syncTimer = setTimeout(rebuildMarkers, 0);
+  }
+
+  table.on('draw.dt', syncMapToTable);
+  table.on('length.dt', syncMapToTable);
 
   /* =========================================================
      INITIALISE
